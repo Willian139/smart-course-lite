@@ -4,6 +4,8 @@
 
 > 非官方客户端，与学校无关。仅作个人学习与自用工具。
 
+[![Release](https://img.shields.io/github/v/release/Willian139/smart-course-lite)](https://github.com/Willian139/smart-course-lite/releases) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 ## 功能
 
 - **课表**：按天查看课程，七日横向选择器 + 左右滑动切换日期，日历选日期，周次显示与前后周切换
