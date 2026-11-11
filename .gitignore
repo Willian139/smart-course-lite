@@ -1,0 +1,16 @@
+# 构建产物
+/classes/
+/dexout/
+*.apk
+*.apk.idsig
+*.dex
+
+# 签名材料（绝对不要提交）
+*.jks
+*.keystore
+*.p12
+
+# 系统/编辑器
+.DS_Store
+*.iml
+.idea/
