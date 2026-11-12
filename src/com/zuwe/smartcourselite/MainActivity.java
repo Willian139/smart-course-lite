@@ -106,8 +106,6 @@ public final class MainActivity extends Activity {
     private LinearLayout screenRoot;
     private FrameLayout bottomNav;
     private FrameLayout navCapsule;
-    private FrameLayout topBar;
-    private TextView topBarTitle;
     private LinearLayout headerBlock;
     private int navPillX = -1;
     private boolean navPillPending;
@@ -380,7 +378,7 @@ public final class MainActivity extends Activity {
 
         root.addView(hairline(), top(24));
         root.addView(txt("凭证仅保存在本机加密存储中。本应用不会伪造登录 code。", 11, this.faint, false), top(12));
-        root.addView(txt("v3.5.20 · 入场动画", 11, this.faint, false), top(6));
+        root.addView(txt("v3.5.21 · 入场动画", 11, this.faint, false), top(6));
         root.addView(AboutFooter.build(this, this.ink, this.muted, this.faint, this.line, this.cardBg, this.bgAlt, this.green), top(6));
 
         this.signInScroll = new ScrollView(this);
@@ -392,19 +390,6 @@ public final class MainActivity extends Activity {
         FrameLayout body = new FrameLayout(this);
         body.addView(this.courseScroll, new FrameLayout.LayoutParams(-1, -1));
         body.addView(this.signInScroll, new FrameLayout.LayoutParams(-1, -1));
-
-        // 折叠顶栏：滚动后浮出居中标题，大标题淡出上移
-        this.topBar = new FrameLayout(this);
-        GradientDrawable topBg = new GradientDrawable();
-        topBg.setColor(UiPolish.withAlpha(this.bg, this.dark ? 0xEE : 0xF2));
-        this.topBar.setBackground(topBg);
-        this.topBarTitle = txt("智慧思政课表", 16, this.ink, true);
-        this.topBarTitle.setGravity(Gravity.CENTER);
-        this.topBar.addView(this.topBarTitle, new FrameLayout.LayoutParams(-1, dp(52f), Gravity.CENTER));
-        this.topBar.setAlpha(0f);
-        FrameLayout.LayoutParams topLp = new FrameLayout.LayoutParams(-1, dp(52f));
-        topLp.gravity = Gravity.TOP;
-        body.addView(this.topBar, topLp);
 
         this.bottomNav = buildBottomNavigation();
         FrameLayout.LayoutParams navLp = new FrameLayout.LayoutParams(-1, -2);
@@ -751,7 +736,6 @@ public final class MainActivity extends Activity {
 
     private void updateTopBar(int y) {
         float t = Math.min(1f, y / (float) Math.max(1, dp(70f)));
-        if (this.topBar != null) this.topBar.setAlpha(t * t);
         if (this.headerBlock != null) {
             this.headerBlock.setAlpha(1f - 0.92f * t);
             this.headerBlock.setTranslationY(-y * 0.28f);
@@ -779,14 +763,15 @@ public final class MainActivity extends Activity {
         int w = getResources().getDisplayMetrics().widthPixels;
         out.animate().cancel();
         in.animate().cancel();
+        // 先把新页复位，避免上一次未走完的动画残留偏移/透明度
+        in.setTranslationX(dir * w * 0.18f);
+        in.setAlpha(0.35f);
         in.setVisibility(View.VISIBLE);
-        in.setTranslationX(dir * w * 0.32f);
-        in.setAlpha(0.2f);
         in.animate().translationX(0f).alpha(1f)
-                .setDuration(640L).setInterpolator(UiPolish.EASE_IN_OUT).start();
+                .setDuration(320L).setInterpolator(UiPolish.EASE_OUT).start();
         out.setVisibility(View.VISIBLE);
-        out.animate().translationX(-dir * w * 0.22f).alpha(0f)
-                .setDuration(560L).setInterpolator(UiPolish.EASE_IN_OUT)
+        out.animate().translationX(-dir * w * 0.12f).alpha(0f)
+                .setDuration(260L).setInterpolator(UiPolish.EASE_OUT)
                 .withEndAction(new Runnable() {
                     @Override public void run() {
                         out.setVisibility(View.GONE);
