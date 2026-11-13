@@ -52,7 +52,7 @@ public final class UpdateManager {
     private static final String KEY_DEFER = "defer_code";      // 「稍后」的版本号
     private static final String KEY_DOWNLOADED = "dl_code";    // 已下载完成的版本号
     private static final String KEY_LAST_CHECK = "last_check";
-    private static final String KEY_AUTO_INSTALL = "auto_install"; // 用户选过「立即更新」
+    private static final String KEY_AUTO_INSTALL = "auto_install_code"; // 用户点了「立即更新」的版本号
     private static final String KEY_SHA = "dl_sha_";           // 下载包 sha256（按版本号）
 
     public static final String APK_NAME = "smart-course-lite-v%s.apk";
@@ -63,6 +63,7 @@ public final class UpdateManager {
     private static AlertDialog currentDialog;
     private static volatile String pendingUrl;          // 本次探测到的下载地址
     private static volatile String statusText = "";     // 下载 / 检查的实时状态文案
+    private static volatile long lastPromptAt;          // 上次弹出更新框的时间（防抖）
     private static java.lang.ref.WeakReference<TextView> statusViewRef;
 
     /** 把状态文案推给界面（关于页那一行）与内存，供失败时排查。 */
@@ -200,9 +201,9 @@ public final class UpdateManager {
             return;
         }
 
-        long last = prefs(activity).getLong(KEY_LAST_CHECK, 0L);
-        if (System.currentTimeMillis() - last < CHECK_INTERVAL_MS) return;
-
+        // 每次打开都探测一次：此前用 30 分钟节流，导致刚装完新版本就打开时
+        // 因为上次检查太近而完全静默，看起来像「不会自动检查」。
+        if (System.currentTimeMillis() - lastPromptAt < 10000L) return;  // 防重复弹窗
         check(activity, false, null);
     }
 
@@ -258,9 +259,9 @@ public final class UpdateManager {
                     if (!manual && skip >= remote) return;
 
                     final int defer = prefs(app).getInt(KEY_DEFER, 0);
-                    final boolean auto = prefs(app).getBoolean(KEY_AUTO_INSTALL, false);
+                    final int auto = prefs(app).getInt(KEY_AUTO_INSTALL, 0);
 
-                    if (defer >= remote || auto) {
+                    if (defer >= remote || auto >= remote) {
                         // 用户之前选过「立即更新」（自动下载），或选过「稍后」→ 不再打扰，直接后台下
                         if (url != null && url.length() > 0) {
                             startDownload(app, remote, name, url, notes);
@@ -354,7 +355,7 @@ public final class UpdateManager {
             @Override public void onDismiss(DialogInterface d) {
                 if ("now".equals(action[0])) {
                     prefs(activity).edit()
-                            .putBoolean(KEY_AUTO_INSTALL, true)
+                            .putInt(KEY_AUTO_INSTALL, remote)
                             .remove(KEY_DEFER)
                             .apply();
                     toast(activity, "开始后台下载，完成后会提示安装");
@@ -371,6 +372,7 @@ public final class UpdateManager {
         AlertDialog dialog = builder.create();
         dialog.setCanceledOnTouchOutside(false);
         currentDialog = dialog;
+        lastPromptAt = System.currentTimeMillis();
         try {
             dialog.show();
         } catch (Exception ignored) {
@@ -402,6 +404,7 @@ public final class UpdateManager {
         AlertDialog dialog = builder.create();
         dialog.setCanceledOnTouchOutside(false);
         currentDialog = dialog;
+        lastPromptAt = System.currentTimeMillis();
         try {
             dialog.show();
         } catch (Exception ignored) {
@@ -572,7 +575,7 @@ public final class UpdateManager {
             File apk = apkFile(context, downloaded);
             if (apk.isFile()) apk.delete();
             sp.edit().remove(KEY_DOWNLOADED).remove(KEY_SHA + downloaded)
-                    .remove(KEY_DEFER).putBoolean(KEY_AUTO_INSTALL, false).apply();
+                    .remove(KEY_DEFER).remove(KEY_AUTO_INSTALL).apply();
         }
         File[] files = dir(context).listFiles();
         if (files != null) {
