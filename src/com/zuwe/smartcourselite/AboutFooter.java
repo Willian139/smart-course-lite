@@ -100,7 +100,7 @@ public final class AboutFooter {
         body.setOrientation(LinearLayout.VERTICAL);
         body.setVisibility(View.GONE);
 
-        final View[] items = new View[5];
+        final View[] items = new View[6];
 
         items[0] = card(activity, cardBg, line,
                 row(activity, "开发者", DEVELOPER, faint, ink, 18f));
@@ -143,6 +143,10 @@ public final class AboutFooter {
         });
         UiPolish.pressable(donate);
         items[4] = donate;
+
+        // 检查更新：显示当前版本、静默探测新版本、已下载时直接进入安装
+        View updateRow = UpdateManager.buildUpdateRow(activity, ink, muted, faint, cardBg, line, accent);
+        items[5] = card(activity, cardBg, line, updateRow);
 
         for (int i = 0; i < items.length; i++) {
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);

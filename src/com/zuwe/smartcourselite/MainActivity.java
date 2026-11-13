@@ -148,6 +148,7 @@ public final class MainActivity extends Activity {
     private LocalDate openedDate = LocalDate.now();
     private List<Course> lastData;
     private volatile boolean loading;
+    private boolean updatePrompted;
 
     @Override
     protected void onCreate(Bundle bundle) {
@@ -161,6 +162,29 @@ public final class MainActivity extends Activity {
         build();
         loadSaved();
         refreshWeekCalendar(false);
+        UpdateManager.cleanupAfterUpdate(this);
+        UpdateManager.checkOnLaunch(this);
+        requestNotificationPermission();
+    }
+
+    /** Android 13+ 需要运行时授予通知权限，否则更新下载的进度/完成通知会被静默丢弃。 */
+    private void requestNotificationPermission() {
+        if (android.os.Build.VERSION.SDK_INT < 33) return;
+        try {
+            if (checkSelfPermission("android.permission.POST_NOTIFICATIONS")
+                    == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                return;
+            }
+            getWindow().getDecorView().postDelayed(new Runnable() {
+                @Override public void run() {
+                    try {
+                        requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 9001);
+                    } catch (Exception ignored) {
+                    }
+                }
+            }, 1200L);
+        } catch (Exception ignored) {
+        }
     }
 
     private SharedPreferences prefs() {
@@ -383,7 +407,7 @@ public final class MainActivity extends Activity {
         root.addView(authPanel(), top(10));
 
         root.addView(txt("凭证仅保存在本机加密存储中。本应用不会伪造登录 code。", 11, this.faint, false), top(12));
-        root.addView(txt("v3.5.37 · 签到记录收起", 11, this.faint, false), top(6));
+        root.addView(txt("v3.5.40 · 自动更新", 11, this.faint, false), top(6));
         root.addView(AboutFooter.build(this, this.ink, this.muted, this.faint, this.line, this.cardBg, this.bgAlt, this.green), top(6));
 
         this.signInScroll = new ScrollView(this);
@@ -1709,6 +1733,13 @@ public final class MainActivity extends Activity {
         }
         maybeDailyRefresh();
         refreshWeekCalendar(false);
+        // 从安装器返回时，若包里已经换成新版本，这里顺带清掉安装包与下载状态
+        UpdateManager.cleanupAfterUpdate(this);
+        // 后台已下好新包（静默下载完成）时，回到前台就提示安装
+        if (!this.updatePrompted && UpdateManager.hasDownloaded(this)) {
+            this.updatePrompted = true;
+            UpdateManager.checkOnLaunch(this);
+        }
     }
 
     private void pickDate() {
