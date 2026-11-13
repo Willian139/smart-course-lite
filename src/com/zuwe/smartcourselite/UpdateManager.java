@@ -317,58 +317,19 @@ public final class UpdateManager {
         if (activity == null || activity.isFinishing()) return;
         dismissDialog();
 
-        final String body = (notes == null || notes.trim().isEmpty())
+        String body = (notes == null || notes.trim().isEmpty())
                 ? "本次更新没有填写说明。"
                 : notes.trim();
+        String message = "当前 v" + currentName(activity) + "   →   最新 v" + name
+                + "\n\n更新内容\n" + body
+                + "\n\n更新为可选操作，不更新也能继续使用。";
+
         final String[] action = new String[]{""};
-
-        LinearLayout box = new LinearLayout(activity);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(activity, 22), dp(activity, 6), dp(activity, 22), 0);
-
-        TextView head = new TextView(activity);
-        head.setText("当前 v" + currentName(activity) + "   →   最新 v" + name);
-        head.setTextSize(12f);
-        head.setTextColor(0xFF8A8F8A);
-        box.addView(head);
-
-        TextView label = new TextView(activity);
-        label.setText("更新内容");
-        label.setTextSize(13f);
-        label.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        label.setPadding(0, dp(activity, 16), 0, dp(activity, 6));
-        box.addView(label);
-
-        TextView content = new TextView(activity);
-        content.setText(body);
-        content.setTextSize(13f);
-        content.setLineSpacing(dp(activity, 5), 1f);
-        content.setTextColor(0xFF3A3E3A);
-        android.widget.ScrollView scroll = new android.widget.ScrollView(activity);
-        scroll.setVerticalScrollBarEnabled(false);
-        scroll.addView(content, new android.widget.FrameLayout.LayoutParams(-1, -2));
-        box.addView(scroll, new LinearLayout.LayoutParams(-1, -2));
-        scroll.post(new Runnable() {
-            @Override public void run() {
-                int max = dp(activity, 300);
-                if (content.getHeight() > max) {
-                    android.view.ViewGroup.LayoutParams lp = scroll.getLayoutParams();
-                    lp.height = max;
-                    scroll.setLayoutParams(lp);
-                }
-            }
-        });
-
-        TextView tip = new TextView(activity);
-        tip.setText("更新为可选操作，不更新也能继续使用。");
-        tip.setTextSize(11f);
-        tip.setTextColor(0xFF9BA09B);
-        tip.setPadding(0, dp(activity, 12), 0, 0);
-        box.addView(tip);
 
         AlertDialog.Builder builder = new AlertDialog.Builder(activity);
         builder.setTitle("发现新版本 v" + name);
-        builder.setView(box);
+        // 用系统 AlertDialog 自带的正文渲染：颜色、行距、过长时滚动都由主题处理，不会出现看不见字的情况。
+        builder.setMessage(message);
         builder.setPositiveButton("立即更新", new DialogInterface.OnClickListener() {
             @Override public void onClick(DialogInterface d, int which) {
                 action[0] = "now";
@@ -388,11 +349,11 @@ public final class UpdateManager {
             @Override public void onDismiss(DialogInterface d) {
                 if ("now".equals(action[0])) {
                     prefs(activity).edit().remove(KEY_DEFER).apply();
-                    toast(activity, "开始后台下载 v" + name + "，完成后会直接进入安装");
                     if (pendingUrl == null || pendingUrl.length() == 0) {
                         toast(activity, "下载地址无效，请稍后在「关于此项目」里重试");
                         return;
                     }
+                    toast(activity, "开始后台下载 v" + name + "，完成后会直接进入安装");
                     startDownload(activity.getApplicationContext(), remote, name, pendingUrl, notes);
                 } else if ("later".equals(action[0])) {
                     // 「稍后」不落标记：下次启动仍会展示公告，但绝不自动下载。
