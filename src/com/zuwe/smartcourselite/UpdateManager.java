@@ -221,9 +221,6 @@ public final class UpdateManager {
             if (manual) toast(activity, "正在检查更新…");
             return;
         }
-        if (!manual && System.currentTimeMillis() - sp.getLong(KEY_LAST_CHECK, 0L) < CHECK_INTERVAL_MS) {
-            return;
-        }
         checking = true;
         final Context app = activity.getApplicationContext();
         if (manual) toast(activity, "正在检查更新…");
@@ -265,21 +262,6 @@ public final class UpdateManager {
 
                     final int skip = prefs(app).getInt(KEY_SKIP, 0);
                     if (!manual && skip >= remote) return;
-
-                    final int defer = prefs(app).getInt(KEY_DEFER, 0);
-                    final int auto = prefs(app).getInt(KEY_AUTO_INSTALL, 0);
-
-                    if (defer >= remote || auto >= remote) {
-                        // 用户之前选过「立即更新」（自动下载），或选过「稍后」→ 不再打扰，直接后台下
-                        if (url != null && url.length() > 0) {
-                            startDownload(app, remote, name, url, notes);
-                        } else if (!manual) {
-                            post(activity, new Runnable() {
-                                @Override public void run() { showUpdateDialog(activity, remote, name, notes); }
-                            });
-                        }
-                        return;
-                    }
 
                     pendingUrl = url;
                     post(activity, new Runnable() {
@@ -329,21 +311,64 @@ public final class UpdateManager {
 
     // ------------------------------------------------------------ 更新提示
 
+    /** 启动时展示的「升级公告」：版本号 + 更新内容 + 三选，只有用户点「立即更新」才下载。 */
     static void showUpdateDialog(final Activity activity, final int remote, final String name,
                                  final String notes) {
         if (activity == null || activity.isFinishing()) return;
         dismissDialog();
 
-        String body = (notes == null || notes.trim().isEmpty())
+        final String body = (notes == null || notes.trim().isEmpty())
                 ? "本次更新没有填写说明。"
                 : notes.trim();
-        String head = "当前版本 v" + currentName(activity) + " → 新版本 v" + name;
-
         final String[] action = new String[]{""};
+
+        LinearLayout box = new LinearLayout(activity);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(activity, 22), dp(activity, 6), dp(activity, 22), 0);
+
+        TextView head = new TextView(activity);
+        head.setText("当前 v" + currentName(activity) + "   →   最新 v" + name);
+        head.setTextSize(12f);
+        head.setTextColor(0xFF8A8F8A);
+        box.addView(head);
+
+        TextView label = new TextView(activity);
+        label.setText("更新内容");
+        label.setTextSize(13f);
+        label.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        label.setPadding(0, dp(activity, 16), 0, dp(activity, 6));
+        box.addView(label);
+
+        TextView content = new TextView(activity);
+        content.setText(body);
+        content.setTextSize(13f);
+        content.setLineSpacing(dp(activity, 5), 1f);
+        content.setTextColor(0xFF3A3E3A);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(activity);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.addView(content, new android.widget.FrameLayout.LayoutParams(-1, -2));
+        box.addView(scroll, new LinearLayout.LayoutParams(-1, -2));
+        scroll.post(new Runnable() {
+            @Override public void run() {
+                int max = dp(activity, 300);
+                if (content.getHeight() > max) {
+                    android.view.ViewGroup.LayoutParams lp = scroll.getLayoutParams();
+                    lp.height = max;
+                    scroll.setLayoutParams(lp);
+                }
+            }
+        });
+
+        TextView tip = new TextView(activity);
+        tip.setText("更新为可选操作，不更新也能继续使用。");
+        tip.setTextSize(11f);
+        tip.setTextColor(0xFF9BA09B);
+        tip.setPadding(0, dp(activity, 12), 0, 0);
+        box.addView(tip);
 
         AlertDialog.Builder builder = new AlertDialog.Builder(activity);
         builder.setTitle("发现新版本 v" + name);
-        builder.setMessage(head + "\n\n" + body);
+        builder.setView(box);
         builder.setPositiveButton("立即更新", new DialogInterface.OnClickListener() {
             @Override public void onClick(DialogInterface d, int which) {
                 action[0] = "now";
@@ -362,15 +387,16 @@ public final class UpdateManager {
         builder.setOnDismissListener(new DialogInterface.OnDismissListener() {
             @Override public void onDismiss(DialogInterface d) {
                 if ("now".equals(action[0])) {
-                    prefs(activity).edit()
-                            .putInt(KEY_AUTO_INSTALL, remote)
-                            .remove(KEY_DEFER)
-                            .apply();
-                    toast(activity, "开始后台下载，完成后会提示安装");
+                    prefs(activity).edit().remove(KEY_DEFER).apply();
+                    toast(activity, "开始后台下载 v" + name + "，完成后会直接进入安装");
+                    if (pendingUrl == null || pendingUrl.length() == 0) {
+                        toast(activity, "下载地址无效，请稍后在「关于此项目」里重试");
+                        return;
+                    }
                     startDownload(activity.getApplicationContext(), remote, name, pendingUrl, notes);
                 } else if ("later".equals(action[0])) {
-                    prefs(activity).edit().putInt(KEY_DEFER, remote).apply();
-                    toast(activity, "下次启动会再提醒");
+                    // 「稍后」不落标记：下次启动仍会展示公告，但绝不自动下载。
+                    toast(activity, "已稍后提醒，下次启动会再询问");
                 } else if ("never".equals(action[0])) {
                     prefs(activity).edit().putInt(KEY_SKIP, remote).apply();
                     toast(activity, "已跳过 v" + name + "，可在「关于此项目」里重新检查");
@@ -387,7 +413,6 @@ public final class UpdateManager {
         }
     }
 
-    /** 下载完成后（或启动时发现已下好）的安装确认框。 */
     static void showInstallPrompt(final Activity activity, final int code) {
         if (activity == null || activity.isFinishing()) return;
         final File apk = apkFile(activity, code);
@@ -396,10 +421,9 @@ public final class UpdateManager {
 
         final String version = versionNameOf(code);
         AlertDialog.Builder builder = new AlertDialog.Builder(activity);
-        builder.setTitle("更新已下载");
-        builder.setMessage("v" + version + " 安装包已下载完成（"
-                + (apk.length() / 1024 / 1024) + " MB）。\n\n现在安装吗？");
-        builder.setPositiveButton("立即更新", new DialogInterface.OnClickListener() {
+        builder.setTitle("v" + version + " 已下载");
+        builder.setMessage("安装包已下载完成（" + String.format(java.util.Locale.US, "%.1f", apk.length() / 1048576f) + " MB）。\n\n现在安装吗？");
+        builder.setPositiveButton("立即安装", new DialogInterface.OnClickListener() {
             @Override public void onClick(DialogInterface d, int which) {
                 install(activity, apk);
             }
