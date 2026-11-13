@@ -54,6 +54,8 @@ public final class UpdateManager {
     private static final String KEY_LAST_CHECK = "last_check";
     private static final String KEY_AUTO_INSTALL = "auto_install_code"; // 用户点了「立即更新」的版本号
     private static final String KEY_SHA = "dl_sha_";           // 下载包 sha256（按版本号）
+    private static final String KEY_LAST_REMOTE = "last_remote"; // 上次检查到的最新版本
+    private static final String KEY_SEEN_VERSION = "seen_version"; // 上次运行时的版本名（用于迁移旧标记）
 
     public static final String APK_NAME = "smart-course-lite-v%s.apk";
     private static final long CHECK_INTERVAL_MS = 30L * 60L * 1000L;
@@ -237,7 +239,11 @@ public final class UpdateManager {
                         if (manual) postToast(activity, "检查更新失败，网络不可用");
                         return;
                     }
-                    prefs(app).edit().putLong(KEY_LAST_CHECK, System.currentTimeMillis()).apply();
+                    prefs(app).edit()
+                            .putLong(KEY_LAST_CHECK, System.currentTimeMillis())
+                            .putInt(KEY_LAST_REMOTE, Math.max(codeOf(cleanTag(latest.optString("tag_name", ""))),
+                                    latest.optInt("version_code", 0)))
+                            .apply();
 
                     final String tag = latest.optString("tag_name", "");
                     final String name = cleanTag(tag);
@@ -254,6 +260,8 @@ public final class UpdateManager {
                         });
                         return;
                     }
+
+                    resetStaleChoice(app, local);
 
                     final int skip = prefs(app).getInt(KEY_SKIP, 0);
                     if (!manual && skip >= remote) return;
@@ -459,11 +467,12 @@ public final class UpdateManager {
                     ok = apk != null && apk.isFile();
                     if (ok) {
                         markDownloaded(app, targetCode);
-                        publishStatus("已下载 v" + targetVersion + "，点此安装");
-                        postToolbarInstall(app, targetCode);
+                        publishStatus("已下载 v" + targetVersion + "，正在调起安装");
                         UpdateNotifier.show(app,
                                 UpdateNotifier.done(app, targetVersion, finalNotes),
                                 UpdateNotifier.ID_DONE);
+                        // 用户已经选过「立即更新」，下载完直接进安装器，不再二次确认
+                        postInstall(app, apk);
                     } else {
                         publishStatus("下载失败：文件不完整");
                     }
@@ -513,21 +522,20 @@ public final class UpdateManager {
     }
 
     /** 调起系统安装器：优先用 MediaStore 给出 content:// 地址，避免 file:// 被系统拒绝。 */
-    public static void install(final Activity activity, final File apk) {
-        if (activity == null || apk == null || !apk.isFile()) {
-            toast(activity, "安装包不存在");
+    public static void install(final Context context, final File apk) {
+        if (context == null || apk == null || !apk.isFile()) {
+            toast(context, "安装包不存在");
             return;
         }
-        Uri uri = exposeForInstall(activity, apk);
+        Uri uri = exposeForInstall(context, apk);
         try {
             Intent intent = new Intent(Intent.ACTION_VIEW);
             intent.setDataAndType(uri != null ? uri : Uri.fromFile(apk),
                     "application/vnd.android.package-archive");
             intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            activity.startActivity(intent);
-            toast(activity, "已调起系统安装界面");
+            context.startActivity(intent);
         } catch (Exception e) {
-            toast(activity, "无法调起安装器：" + e.getClass().getSimpleName()
+            toast(context, "无法调起安装器：" + e.getClass().getSimpleName()
                     + "，安装包位置：" + apk.getAbsolutePath());
         }
     }
@@ -646,6 +654,46 @@ public final class UpdateManager {
         throw last != null ? last : new IOException("下载失败");
     }
 
+    /** 关于页那一行的说明：当前版本 / 最近一次探测到的版本 / 检查时间。 */
+    static String checkSummary(Context context) {
+        SharedPreferences sp = prefs(context);
+        int remote = sp.getInt(KEY_LAST_REMOTE, 0);
+        long at = sp.getLong(KEY_LAST_CHECK, 0L);
+        if (remote <= 0 || at <= 0) return "当前版本 v" + currentName(context);
+        String time = new java.text.SimpleDateFormat("HH:mm", java.util.Locale.CHINA)
+                .format(new java.util.Date(at));
+        return "当前 v" + currentName(context) + " · 最新 v" + versionNameOf(remote)
+                + " · " + time + " 检查";
+    }
+
+    /** 版本变化后清掉旧的「不再提示 / 稍后 / 自动安装」标记，否则新版本可能被历史选择静默跳过。 */
+    private static void resetStaleChoice(Context context, int localCode) {
+        SharedPreferences sp = prefs(context);
+        String seen = sp.getString(KEY_SEEN_VERSION, "");
+        String now = currentName(context);
+        if (seen.equals(now)) return;
+        sp.edit()
+                .putString(KEY_SEEN_VERSION, now)
+                .remove(KEY_SKIP)
+                .remove(KEY_DEFER)
+                .remove(KEY_AUTO_INSTALL)
+                .putLong(KEY_LAST_CHECK, 0L)
+                .apply();
+    }
+
+    /** 主线程调起系统安装器。 */
+    private static void postInstall(final Context context, final File apk) {
+        new Handler(Looper.getMainLooper()).post(new Runnable() {
+            @Override public void run() {
+                try {
+                    install(context, apk);
+                } catch (Exception e) {
+                    postToast(context, "无法调起安装器：" + e.getClass().getSimpleName());
+                }
+            }
+        });
+    }
+
     private static String[] mirrorCandidates(String url) {
         return new String[]{
                 url,
@@ -753,7 +801,7 @@ public final class UpdateManager {
         hint.setTextColor(adjustAlpha(faint, 0xFF));
         hint.setText(hasDownloaded(activity)
                 ? "已下载 v" + versionNameOf(downloadedCode(activity)) + "，点此安装"
-                : "当前版本 v" + currentName(activity));
+                : checkSummary(activity));
         hint.setPadding(0, dp(activity, 6), 0, 0);
         if (statusText != null && statusText.length() > 0) {
             hint.setText(statusText);
