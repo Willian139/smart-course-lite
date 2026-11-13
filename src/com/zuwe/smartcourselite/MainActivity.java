@@ -407,7 +407,7 @@ public final class MainActivity extends Activity {
         root.addView(authPanel(), top(10));
 
         root.addView(txt("凭证仅保存在本机加密存储中。本应用不会伪造登录 code。", 11, this.faint, false), top(12));
-        root.addView(txt("v3.5.40 · 自动更新", 11, this.faint, false), top(6));
+        root.addView(txt("v3.5.41 · 自动更新", 11, this.faint, false), top(6));
         root.addView(AboutFooter.build(this, this.ink, this.muted, this.faint, this.line, this.cardBg, this.bgAlt, this.green), top(6));
 
         this.signInScroll = new ScrollView(this);
