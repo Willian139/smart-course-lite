@@ -117,6 +117,13 @@ public final class MainActivity extends Activity {
     private TextView statLate;
     private TextView statTotal;
     private LinearLayout signInHistoryList;
+    private LinearLayout signInHistoryPanel;
+    private List<View> signInHistoryRows;
+    private View signInHistoryToggle;
+    private SvgIcon.IconView signInHistoryChevron;
+    private TextView signInHistoryToggleLabel;
+    private boolean signInHistoryExpanded;
+    private int signInHistoryTotal;
     private JSONObject signInStats;
     private JSONArray signInHistory;
     private boolean signInLoading;
@@ -352,7 +359,6 @@ public final class MainActivity extends Activity {
         header.addView(this.themeBtn, new LinearLayout.LayoutParams(dp(40f), dp(40f)));
         root.addView(header);
 
-        root.addView(hairline(), top(16));
         this.headerBlock = header;
         root.addView(datePanel(), top(10));
 
@@ -376,9 +382,8 @@ public final class MainActivity extends Activity {
         root.addView(sectionHead("", "账户凭证", "授权返回后自动加密保存到本机"), top(24));
         root.addView(authPanel(), top(10));
 
-        root.addView(hairline(), top(24));
         root.addView(txt("凭证仅保存在本机加密存储中。本应用不会伪造登录 code。", 11, this.faint, false), top(12));
-        root.addView(txt("v3.5.21 · 入场动画", 11, this.faint, false), top(6));
+        root.addView(txt("v3.5.37 · 签到记录收起", 11, this.faint, false), top(6));
         root.addView(AboutFooter.build(this, this.ink, this.muted, this.faint, this.line, this.cardBg, this.bgAlt, this.green), top(6));
 
         this.signInScroll = new ScrollView(this);
@@ -564,6 +569,7 @@ public final class MainActivity extends Activity {
         this.signInHistoryList = new LinearLayout(this);
         this.signInHistoryList.setOrientation(LinearLayout.VERTICAL);
         LinearLayout historyPanel = panel();
+        this.signInHistoryPanel = historyPanel;
         historyPanel.addView(this.signInHistoryList);
         root.addView(historyPanel, top(10));
         renderSignInData();
@@ -842,27 +848,208 @@ public final class MainActivity extends Activity {
         if (this.statAbsent != null) this.statAbsent.setText(countText(this.signInStats, "absentCount"));
         if (this.statLate != null) this.statLate.setText(countText(this.signInStats, "lateCount"));
         if (this.statTotal != null) this.statTotal.setText(countText(this.signInStats, "totalCount"));
-        if (this.signInHistoryList == null) return;
-        this.signInHistoryList.removeAllViews();
-        if (this.signInHistory == null || this.signInHistory.length() == 0) {
-            this.signInHistoryList.addView(txt("暂无签到记录", 13, this.muted, false));
-            this.signInHistoryList.addView(txt("服务器当前返回空记录；这不代表没有可签到任务。", 11, this.faint, false), top(6));
-            return;
+        if (this.signInHistoryPanel == null) return;
+        if (this.signInHistoryRows == null) this.signInHistoryRows = new ArrayList<View>();
+        this.signInHistoryRows.clear();
+        this.signInHistoryTotal = 0;
+        if (this.signInHistory != null) {
+            for (int i = 0; i < this.signInHistory.length(); i++) {
+                JSONObject item = this.signInHistory.optJSONObject(i);
+                if (item == null) continue;
+                String date = firstValue(item, "courseDate", "signDate", "checkInDate", "date", "createTime", "checkTime");
+                String course = firstValue(item, "courseName", "courseTitle", "className", "name");
+                String state = firstValue(item, "statusName", "checkInStatus", "status", "result");
+                LinearLayout row = new LinearLayout(this);
+                row.setOrientation(LinearLayout.VERTICAL);
+                row.addView(txt(course.isEmpty() ? "课堂签到记录" : course, 13, this.ink, true));
+                String detail = (date.isEmpty() ? "日期未提供" : date)
+                        + (state.isEmpty() ? "" : " · " + state);
+                row.addView(txt(detail, 11, this.muted, false), top(5));
+                this.signInHistoryRows.add(row);
+            }
         }
-        for (int i = 0; i < this.signInHistory.length(); i++) {
-            JSONObject item = this.signInHistory.optJSONObject(i);
-            if (item == null) continue;
-            String date = firstValue(item, "courseDate", "signDate", "checkInDate", "date", "createTime", "checkTime");
-            String course = firstValue(item, "courseName", "courseTitle", "className", "name");
-            String state = firstValue(item, "statusName", "checkInStatus", "status", "result");
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.VERTICAL);
-            row.addView(txt(course.isEmpty() ? "课堂签到记录" : course, 13, this.ink, true));
-            String detail = (date.isEmpty() ? "日期未提供" : date)
-                    + (state.isEmpty() ? "" : " · " + state);
-            row.addView(txt(detail, 11, this.muted, false), top(5));
-            this.signInHistoryList.addView(row);
-            if (i + 1 < this.signInHistory.length()) this.signInHistoryList.addView(hairline(), top(10));
+        this.signInHistoryTotal = this.signInHistoryRows.size();
+        installHistoryCard(this.signInHistoryExpanded, false);
+    }
+
+    /** 用全新卡片替换旧卡片（重建视图，避免在原视图上直接改高度产生的重绘残缺）。 */
+    private void replaceHistoryCard(LinearLayout panel) {
+        LinearLayout old = this.signInHistoryPanel;
+        if (old != null && old.getParent() instanceof LinearLayout) {
+            LinearLayout parent = (LinearLayout) old.getParent();
+            int index = parent.indexOfChild(old);
+            android.view.ViewGroup.LayoutParams lp = old.getLayoutParams();
+            parent.removeView(old);
+            parent.addView(panel, index, lp);
+        }
+        this.signInHistoryPanel = panel;
+    }
+
+    private LinearLayout installHistoryCard(final boolean expanded, final boolean animateExpand) {
+        final List<View> rows = this.signInHistoryRows == null
+                ? new ArrayList<View>() : this.signInHistoryRows;
+        // 先把旧列表里的行摘下来，否则重新挂到新列表会抛
+        // IllegalStateException: The specified child already has a parent
+        if (this.signInHistoryList != null) this.signInHistoryList.removeAllViews();
+        final int total = rows.size();
+        final int visible = expanded ? total : Math.min(3, total);
+
+        final LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        final int[] lastVisibleIndex = {-1};
+        if (total == 0) {
+            list.addView(txt("暂无签到记录", 13, this.muted, false));
+            list.addView(txt("服务器当前返回空记录；这不代表没有可签到任务。", 11, this.faint, false), top(6));
+        } else {
+            for (int i = 0; i < visible; i++) {
+                LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(-1, -2);
+                if (i > 0) rlp.topMargin = dp(16f);
+                list.addView(rows.get(i), rlp);
+                lastVisibleIndex[0] = list.getChildCount() - 1;
+            }
+            if (total > 3) list.addView(buildHistoryToggle(total), top(4));
+            if (animateExpand && total > 3) {
+                for (int k = 3; k < total; k++) {
+                    rows.get(k).setAlpha(0f);
+                    rows.get(k).setTranslationY(k == 3 ? 0f : dp(14f));
+                }
+            }
+        }
+
+        LinearLayout panel = panel();
+        panel.addView(list);
+        replaceHistoryCard(panel);
+        this.signInHistoryList = list;
+
+        if (animateExpand && total > 3 && lastVisibleIndex[0] >= 0) {
+            playHistoryEntrance(panel, list, lastVisibleIndex[0], total);
+        }
+        return panel;
+    }
+
+    /** 与课表页今日课程卡片完全一致：框向下拓展 + 文字上浮浮现。 */
+    private void playHistoryEntrance(final LinearLayout panel, final LinearLayout list,
+                                     final int lastVisibleIndex, final int total) {
+        final List<View> rows = this.signInHistoryRows;
+        final int extra = total - 3;
+        panel.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
+            @Override public boolean onPreDraw() {
+                panel.getViewTreeObserver().removeOnPreDrawListener(this);
+                final int full = panel.getHeight();
+                int h0 = panel.getPaddingTop() + panel.getPaddingBottom();
+                View anchor = list.getChildAt(lastVisibleIndex);
+                if (anchor != null) {
+                    h0 += anchor.getBottom();
+                    ViewGroup.LayoutParams alp = anchor.getLayoutParams();
+                    if (alp instanceof LinearLayout.LayoutParams) {
+                        h0 += ((LinearLayout.LayoutParams) alp).bottomMargin;
+                    }
+                }
+                final ViewGroup.LayoutParams lp = panel.getLayoutParams();
+                panel.setClipToOutline(false);
+                if (full > h0 && h0 > 0 && lp != null) {
+                    lp.height = h0;
+                    panel.setLayoutParams(lp);
+                    ValueAnimator grow = ValueAnimator.ofInt(h0, full);
+                    grow.setDuration(460L + (extra - 1) * 120L);
+                    grow.setInterpolator(UiPolish.EASE_IN_OUT);
+                    grow.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+                        @Override public void onAnimationUpdate(ValueAnimator a) {
+                            lp.height = (Integer) a.getAnimatedValue();
+                            panel.setLayoutParams(lp);
+                        }
+                    });
+                    grow.addListener(new android.animation.AnimatorListenerAdapter() {
+                        @Override public void onAnimationEnd(android.animation.Animator a) {
+                            lp.height = -2;
+                            panel.setLayoutParams(lp);
+                            panel.setClipToOutline(true);
+                            panel.invalidate();
+                        }
+                    });
+                    grow.start();
+                }
+                for (int k = 0; k < extra; k++) {
+                    View r = rows.get(3 + k);
+                    r.animate().alpha(1f).translationY(0f)
+                            .setStartDelay(100L + k * 140L)
+                            .setDuration(k == 0 ? 700L : 650L)
+                            .setInterpolator(UiPolish.EASE_OUT)
+                            .start();
+                }
+                return true;
+            }
+        });
+    }
+
+    private View buildHistoryToggle(final int total) {
+        LinearLayout toggle = new LinearLayout(this);
+        toggle.setOrientation(LinearLayout.HORIZONTAL);
+        toggle.setGravity(Gravity.CENTER);
+        toggle.setPadding(0, dp(8f), 0, dp(6f));
+        this.signInHistoryToggleLabel = txt(
+                this.signInHistoryExpanded ? "收起签到记录" : "展开全部 " + total + " 条记录",
+                12, this.muted, false);
+        this.signInHistoryChevron = SvgIcon.view(this, SvgIcon.CHEV_R, this.muted, 13);
+        this.signInHistoryChevron.setRotation(this.signInHistoryExpanded ? 270f : 90f);
+        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(dp(13f), dp(13f));
+        ilp.leftMargin = dp(6f);
+        toggle.addView(this.signInHistoryToggleLabel);
+        toggle.addView(this.signInHistoryChevron, ilp);
+        toggle.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View view) { toggleHistoryExpanded(); }
+        });
+        UiPolish.pressable(toggle);
+        this.signInHistoryToggle = toggle;
+        return toggle;
+    }
+
+    private void toggleHistoryExpanded() {
+        if (this.signInHistoryExpanded) collapseHistory();
+        else {
+            this.signInHistoryExpanded = true;
+            installHistoryCard(true, true);
+        }
+    }
+
+    /** 收起：新卡片从当前高度折回到前 3 条的高度。 */
+    private void collapseHistory() {
+        LinearLayout oldPanel = this.signInHistoryPanel;
+        final int from = oldPanel == null ? 0 : oldPanel.getHeight();
+        this.signInHistoryExpanded = false;
+        final LinearLayout panel = installHistoryCard(false, false);
+        final ViewGroup.LayoutParams lp = panel.getLayoutParams();
+        if (lp == null || from <= 0) return;
+        int width = panel.getWidth() > 0 ? panel.getWidth() : getResources().getDisplayMetrics().widthPixels;
+        panel.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        final int to = panel.getMeasuredHeight();
+        if (to <= 0 || to >= from) return;
+        panel.setClipToOutline(false);
+        lp.height = from;
+        panel.setLayoutParams(lp);
+        ValueAnimator shrink = ValueAnimator.ofInt(from, to);
+        shrink.setDuration(460L);
+        shrink.setInterpolator(UiPolish.EASE_IN_OUT);
+        shrink.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+            @Override public void onAnimationUpdate(ValueAnimator a) {
+                lp.height = (Integer) a.getAnimatedValue();
+                panel.setLayoutParams(lp);
+            }
+        });
+        shrink.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(android.animation.Animator a) {
+                lp.height = -2;
+                panel.setLayoutParams(lp);
+                panel.setClipToOutline(true);
+                panel.invalidate();
+            }
+        });
+        shrink.start();
+        if (this.signInHistoryChevron != null) {
+            this.signInHistoryChevron.setRotation(270f);
+            this.signInHistoryChevron.animate().rotation(90f)
+                    .setDuration(320L).setInterpolator(UiPolish.EASE_IN_OUT).start();
         }
     }
 

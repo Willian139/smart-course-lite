@@ -45,7 +45,7 @@ public final class AboutFooter {
                     + "完全自愿，不影响任何功能。";
 
     /** 每一条之间的滑入间隔（毫秒）。 */
-    private static final long STEP_DELAY = 1500L;
+    private static final long STEP_DELAY = 700L;
     /** 单条滑入动画时长（毫秒）。 */
     private static final long SLIDE_DURATION = 1000L;
     /** 点开时整块内容缓慢上移的时长（毫秒）。 */
