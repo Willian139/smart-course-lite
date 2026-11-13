@@ -353,8 +353,7 @@ public final class UpdateManager {
                         toast(activity, "下载地址无效，请稍后在「关于此项目」里重试");
                         return;
                     }
-                    toast(activity, "开始后台下载 v" + name + "，完成后会直接进入安装");
-                    startDownload(activity.getApplicationContext(), remote, name, pendingUrl, notes);
+                    showDownloadProgress(activity, remote, name, pendingUrl, notes);
                 } else if ("later".equals(action[0])) {
                     // 「稍后」不落标记：下次启动仍会展示公告，但绝不自动下载。
                     toast(activity, "已稍后提醒，下次启动会再询问");
@@ -417,6 +416,120 @@ public final class UpdateManager {
 
     // ------------------------------------------------------------ 下载
 
+    // ------------------------------------------------------------ 前台下载进度
+
+    private static AlertDialog progressDialog;
+    private static android.widget.ProgressBar progressBarView;
+    private static TextView progressTextView;
+    private static volatile boolean cancelRequested;
+
+    /** 用户点「立即更新」后：先弹带进度条的前台下载面板，可随时转为后台。 */
+    static void showDownloadProgress(final Activity activity, final int code, final String name,
+                                     final String url, final String notes) {
+        if (activity == null || activity.isFinishing()) return;
+        dismissProgress();
+        cancelRequested = false;
+
+        LinearLayout box = new LinearLayout(activity);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = dp(activity, 22);
+        box.setPadding(pad, dp(activity, 18), pad, dp(activity, 2));
+
+        TextView title = new TextView(activity);
+        title.setText("正在下载 v" + name);
+        title.setTextSize(15f);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        box.addView(title);
+
+        final TextView stat = new TextView(activity);
+        stat.setText("正在连接下载线路…");
+        stat.setTextSize(12f);
+        stat.setTextColor(themeColor(activity, android.R.attr.textColorSecondary));
+        stat.setPadding(0, dp(activity, 10), 0, dp(activity, 12));
+        box.addView(stat);
+        progressTextView = stat;
+
+        android.widget.ProgressBar bar =
+                new android.widget.ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal);
+        bar.setMax(100);
+        bar.setProgress(0);
+        box.addView(bar, new LinearLayout.LayoutParams(-1, dp(activity, 10)));
+        progressBarView = bar;
+
+        TextView hint = new TextView(activity);
+        hint.setText("下载完成后会自动打开安装界面；也可以先退出，下载会在后台继续。");
+        hint.setTextSize(11f);
+        hint.setTextColor(themeColor(activity, android.R.attr.textColorSecondary));
+        hint.setPadding(0, dp(activity, 12), 0, 0);
+        box.addView(hint);
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(activity);
+        builder.setView(box);
+        builder.setPositiveButton("后台下载", new DialogInterface.OnClickListener() {
+            @Override public void onClick(DialogInterface d, int which) {
+                // 只关掉面板，下载继续；完成后仍会自动调起安装器
+            }
+        });
+        builder.setNegativeButton("取消下载", new DialogInterface.OnClickListener() {
+            @Override public void onClick(DialogInterface d, int which) {
+                cancelRequested = true;
+                publishStatus("已取消下载 v" + name);
+                toast(activity, "已取消下载");
+            }
+        });
+        AlertDialog dialog = builder.create();
+        dialog.setCanceledOnTouchOutside(false);
+        progressDialog = dialog;
+        try {
+            dialog.show();
+        } catch (Exception ignored) {
+        }
+        startDownload(activity, code, name, url, notes);
+    }
+
+    /** 跟随对话框主题取色，避免深色主题下文字看不见。 */
+    private static int themeColor(Context context, int attr) {
+        android.util.TypedValue tv = new android.util.TypedValue();
+        if (context.getTheme().resolveAttribute(attr, tv, true)) {
+            if (tv.resourceId != 0) {
+                try {
+                    return context.getResources().getColor(tv.resourceId);
+                } catch (Exception ignored) {
+                    return tv.data;
+                }
+            }
+            return tv.data;
+        }
+        return 0xFF808080;
+    }
+
+    static void dismissProgress() {
+        AlertDialog d = progressDialog;
+        progressDialog = null;
+        progressBarView = null;
+        progressTextView = null;
+        if (d != null) {
+            try {
+                if (d.isShowing()) d.dismiss();
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    private static void updateProgressUi(final int percent, final long done, final long total,
+                                         final String lineText) {
+        new Handler(Looper.getMainLooper()).post(new Runnable() {
+            @Override public void run() {
+                if (progressBarView != null) {
+                    progressBarView.setProgress(percent < 0 ? 0 : percent);
+                }
+                if (progressTextView != null) {
+                    progressTextView.setText(lineText);
+                }
+            }
+        });
+    }
+
     public static void startDownload(Context context, int code, String versionName,
                                      String url, String notes) {
         if (url == null) {
@@ -429,7 +542,7 @@ public final class UpdateManager {
         final String finalUrl = url;
         final String finalNotes = notes == null ? "" : notes;
         publishStatus("开始下载 v" + targetVersion + "…");
-        postToast(app, "已开始后台下载 v" + targetVersion);
+        updateProgressUi(0, 0, 0, "正在连接下载线路…");
         Thread thread = new Thread(new Runnable() {
             @Override public void run() {
                 boolean ok = false;
@@ -440,10 +553,12 @@ public final class UpdateManager {
 
                                 @Override public void onProgress(int percent, long done, long total) {
                                     long now = System.currentTimeMillis();
-                                    if (now - lastPush < 700L && percent < 100) return;
+                                    if (now - lastPush < 400L && percent < 100) return;
                                     lastPush = now;
-                                    publishStatus("下载中 " + percent + "%（"
-                                            + (done / 1024) + " / " + (total / 1024) + " KB）");
+                                    String line = "下载中 " + percent + "%（"
+                                            + (done / 1024) + " / " + (total / 1024) + " KB）";
+                                    publishStatus(line);
+                                    updateProgressUi(percent, done, total, line);
                                     UpdateNotifier.show(app,
                                             UpdateNotifier.progress(app, percent, targetVersion),
                                             UpdateNotifier.ID_PROGRESS);
@@ -453,17 +568,27 @@ public final class UpdateManager {
                     if (ok) {
                         markDownloaded(app, targetCode);
                         publishStatus("已下载 v" + targetVersion + "，正在调起安装");
+                        updateProgressUi(100, 0, 0, "下载完成，正在打开安装界面…");
                         UpdateNotifier.show(app,
                                 UpdateNotifier.done(app, targetVersion, finalNotes),
                                 UpdateNotifier.ID_DONE);
+                        dismissProgress();
                         // 用户已经选过「立即更新」，下载完直接进安装器，不再二次确认
                         postInstall(app, apk);
                     } else {
                         publishStatus("下载失败：文件不完整");
+                        dismissProgress();
+                        postToast(app, "下载失败：文件不完整");
                     }
                 } catch (Exception e) {
                     final String reason = e.getMessage() == null
                             ? e.getClass().getSimpleName() : e.getMessage();
+                    dismissProgress();
+                    if (cancelRequested) {
+                        publishStatus("已取消下载 v" + targetVersion);
+                        UpdateNotifier.cancel(app, UpdateNotifier.ID_PROGRESS);
+                        return;
+                    }
                     publishStatus("下载失败：" + reason);
                     UpdateNotifier.show(app,
                             UpdateNotifier.failed(app, targetVersion, reason),
@@ -717,6 +842,12 @@ public final class UpdateManager {
             int read;
             int lastPct = -1;
             while ((read = in.read(buf)) > 0) {
+                if (cancelRequested) {
+                    try { out.close(); } catch (Exception ignored) {}
+                    try { in.close(); } catch (Exception ignored) {}
+                    part.delete();
+                    throw new IOException("已取消");
+                }
                 out.write(buf, 0, read);
                 digest.update(buf, 0, read);
                 done += read;
