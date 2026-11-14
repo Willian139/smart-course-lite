@@ -47,6 +47,9 @@ public final class UpdateManager {
     private static final String TAG_URL =
             "https://api.github.com/repos/" + REPO + "/releases/tags/v";
 
+    /** 由 AboutFooter 传入的强调色，供自绘对话框按钮使用，避免跟随系统主题（可能变成红色）。 */
+    private static volatile int ACCENT = 0xFF5F6F52;
+
     private static final String PREFS = "smartcourse_update";
     private static final String KEY_SKIP = "skip_code";        // 「不再提示」的版本号
     private static final String KEY_DEFER = "defer_code";      // 「稍后」的版本号
@@ -384,22 +387,29 @@ public final class UpdateManager {
         tip.setPadding(0, dp(activity, 14), 0, 0);
         box.addView(tip);
 
+        final LinearLayout row = dialogActions(activity);
+        row.setPadding(0, dp(activity, 14), 0, dp(activity, 8));
+        TextView never = dialogAction(activity, "不再提示",
+                themeColor(activity, android.R.attr.textColorSecondary), false, null);
+        TextView later = dialogAction(activity, "稍后",
+                themeColor(activity, android.R.attr.textColorSecondary), false, null);
+        TextView now = dialogAction(activity, "立即更新", ACCENT, true, null);
+        row.addView(never, actionLp(activity, true));
+        row.addView(later, actionLp(activity, false));
+        row.addView(now, actionLp(activity, false));
+        box.addView(row);
+
         AlertDialog.Builder builder = new AlertDialog.Builder(activity);
         builder.setView(box);
-        builder.setPositiveButton("立即更新", new DialogInterface.OnClickListener() {
-            @Override public void onClick(DialogInterface d, int which) {
-                action[0] = "now";
-            }
+        final AlertDialog dialog = builder.create();
+        never.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { action[0] = "never"; dialog.dismiss(); }
         });
-        builder.setNeutralButton("稍后", new DialogInterface.OnClickListener() {
-            @Override public void onClick(DialogInterface d, int which) {
-                action[0] = "later";
-            }
+        later.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { action[0] = "later"; dialog.dismiss(); }
         });
-        builder.setNegativeButton("不再提示", new DialogInterface.OnClickListener() {
-            @Override public void onClick(DialogInterface d, int which) {
-                action[0] = "never";
-            }
+        now.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { action[0] = "now"; dialog.dismiss(); }
         });
         builder.setOnDismissListener(new DialogInterface.OnDismissListener() {
             @Override public void onDismiss(DialogInterface d) {
@@ -418,7 +428,6 @@ public final class UpdateManager {
                 }
             }
         });
-        AlertDialog dialog = builder.create();
         dialog.setCanceledOnTouchOutside(false);
         currentDialog = dialog;
         lastPromptAt = System.currentTimeMillis();
@@ -435,20 +444,50 @@ public final class UpdateManager {
         dismissDialog();
 
         final String version = versionNameOf(code);
+
+        LinearLayout box = new LinearLayout(activity);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = dp(activity, 22);
+        box.setPadding(pad, dp(activity, 18), pad, dp(activity, 2));
+        TextView title = new TextView(activity);
+        title.setText("v" + version + " 已下载");
+        title.setTextSize(15f);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        title.setTextColor(themeColor(activity, android.R.attr.textColorPrimary));
+        box.addView(title);
+        TextView msg = new TextView(activity);
+        msg.setText("安装包已下载完成（"
+                + String.format(java.util.Locale.US, "%.1f", apk.length() / 1048576f)
+                + " MB）。现在安装吗？");
+        msg.setTextSize(13f);
+        msg.setLineSpacing(dp(activity, 6), 1f);
+        msg.setTextColor(themeColor(activity, android.R.attr.textColorPrimary));
+        msg.setPadding(0, dp(activity, 10), 0, 0);
+        box.addView(msg);
+
         AlertDialog.Builder builder = new AlertDialog.Builder(activity);
-        builder.setTitle("v" + version + " 已下载");
-        builder.setMessage("安装包已下载完成（" + String.format(java.util.Locale.US, "%.1f", apk.length() / 1048576f) + " MB）。\n\n现在安装吗？");
-        builder.setPositiveButton("立即安装", new DialogInterface.OnClickListener() {
-            @Override public void onClick(DialogInterface d, int which) {
+        builder.setView(box);
+        final AlertDialog dialog = builder.create();
+        LinearLayout row = dialogActions(activity);
+        row.setPadding(0, dp(activity, 14), 0, dp(activity, 8));
+        TextView laterBtn = dialogAction(activity, "稍后",
+                themeColor(activity, android.R.attr.textColorSecondary), false, null);
+        TextView installBtn = dialogAction(activity, "立即安装", ACCENT, true, null);
+        row.addView(laterBtn, actionLp(activity, true));
+        row.addView(installBtn, actionLp(activity, false));
+        box.addView(row);
+        laterBtn.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                toast(activity, "下次启动会再提醒安装");
+                dialog.dismiss();
+            }
+        });
+        installBtn.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                dialog.dismiss();
                 install(activity, apk);
             }
         });
-        builder.setNegativeButton("稍后", new DialogInterface.OnClickListener() {
-            @Override public void onClick(DialogInterface d, int which) {
-                toast(activity, "下次启动会再提醒安装");
-            }
-        });
-        AlertDialog dialog = builder.create();
         dialog.setCanceledOnTouchOutside(false);
         currentDialog = dialog;
         lastPromptAt = System.currentTimeMillis();
@@ -509,6 +548,13 @@ public final class UpdateManager {
                 new android.widget.ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal);
         bar.setMax(100);
         bar.setProgress(0);
+        // 显式着色：进度条默认跟随系统主题，某些主题下会是红色
+        try {
+            int track = (ACCENT & 0x00FFFFFF) | 0x33000000;
+            bar.setProgressTintList(android.content.res.ColorStateList.valueOf(ACCENT));
+            bar.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(track));
+        } catch (Throwable ignored) {
+        }
         box.addView(bar, new LinearLayout.LayoutParams(-1, dp(activity, 10)));
         progressBarView = bar;
 
@@ -521,19 +567,26 @@ public final class UpdateManager {
 
         AlertDialog.Builder builder = new AlertDialog.Builder(activity);
         builder.setView(box);
-        builder.setPositiveButton("后台下载", new DialogInterface.OnClickListener() {
-            @Override public void onClick(DialogInterface d, int which) {
-                // 只关掉面板，下载继续；完成后仍会自动调起安装器
-            }
-        });
-        builder.setNegativeButton("取消下载", new DialogInterface.OnClickListener() {
-            @Override public void onClick(DialogInterface d, int which) {
+        final AlertDialog dialog = builder.create();
+        final LinearLayout row = dialogActions(activity);
+        row.setPadding(0, dp(activity, 14), 0, dp(activity, 8));
+        TextView cancel = dialogAction(activity, "取消下载",
+                themeColor(activity, android.R.attr.textColorSecondary), false, null);
+        TextView background = dialogAction(activity, "后台下载", ACCENT, true, null);
+        row.addView(cancel, actionLp(activity, true));
+        row.addView(background, actionLp(activity, false));
+        box.addView(row);
+        cancel.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
                 cancelRequested = true;
                 publishStatus("已取消下载 v" + name);
                 toast(activity, "已取消下载");
+                dialog.dismiss();
             }
         });
-        AlertDialog dialog = builder.create();
+        background.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { dialog.dismiss(); }
+        });
         dialog.setCanceledOnTouchOutside(false);
         progressDialog = dialog;
         try {
@@ -541,6 +594,33 @@ public final class UpdateManager {
         } catch (Exception ignored) {
         }
         startDownload(activity, code, name, url, notes);
+    }
+
+    /** 自绘对话框按钮：颜色完全由我们控制，不跟随系统主题（系统主题的按钮可能是红色）。 */
+    private static TextView dialogAction(Activity activity, String text, int color, boolean bold,
+                                         View.OnClickListener listener) {
+        TextView view = new TextView(activity);
+        view.setText(text);
+        view.setTextSize(14f);
+        view.setTypeface(Typeface.DEFAULT, bold ? Typeface.BOLD : Typeface.NORMAL);
+        view.setTextColor(color);
+        view.setGravity(Gravity.CENTER);
+        view.setPadding(dp(activity, 12), dp(activity, 10), dp(activity, 12), dp(activity, 10));
+        view.setOnClickListener(listener);
+        return view;
+    }
+
+    private static LinearLayout dialogActions(Activity activity) {
+        LinearLayout row = new LinearLayout(activity);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        return row;
+    }
+
+    private static LinearLayout.LayoutParams actionLp(Activity activity, boolean first) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+        if (!first) lp.leftMargin = dp(activity, 6);
+        return lp;
     }
 
     /** 跟随对话框主题取色，避免深色主题下文字看不见。 */
@@ -860,12 +940,13 @@ public final class UpdateManager {
         });
     }
 
+    /** 镜像优先，直连放最后：直连 GitHub 在部分网络下会挂很久才超时。 */
     private static String[] mirrorCandidates(String url) {
         return new String[]{
-                url,
                 "https://gh-proxy.com/" + url,
                 "https://ghfast.top/" + url,
-                "https://ghproxy.net/" + url
+                "https://ghproxy.net/" + url,
+                url
         };
     }
 
@@ -881,8 +962,8 @@ public final class UpdateManager {
         try {
             connection = (HttpURLConnection) new URL(url).openConnection();
             connection.setInstanceFollowRedirects(true);
-            connection.setConnectTimeout(15000);
-            connection.setReadTimeout(30000);
+            connection.setConnectTimeout(6000);
+            connection.setReadTimeout(20000);
             connection.setRequestProperty("User-Agent",
                     "Mozilla/5.0 (Linux; Android " + Build.VERSION.RELEASE
                             + ") SmartCourseLite/" + currentName(context));
@@ -940,6 +1021,7 @@ public final class UpdateManager {
     public static View buildUpdateRow(final Activity activity, int ink, int muted,
                                       int faint, int cardBg, final int lineColor,
                                       final int greenColor) {
+        ACCENT = greenColor;
         // 外层由 AboutFooter.card() 提供圆角卡片与左右内边距，这里只排内容，
         // 否则会套两层卡片，看起来比其它条目「小一圈」。
         LinearLayout box = new LinearLayout(activity);
