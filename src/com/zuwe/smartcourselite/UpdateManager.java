@@ -411,7 +411,7 @@ public final class UpdateManager {
         now.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { action[0] = "now"; dialog.dismiss(); }
         });
-        builder.setOnDismissListener(new DialogInterface.OnDismissListener() {
+        dialog.setOnDismissListener(new DialogInterface.OnDismissListener() {
             @Override public void onDismiss(DialogInterface d) {
                 if ("now".equals(action[0])) {
                     prefs(activity).edit().remove(KEY_DEFER).apply();
@@ -419,7 +419,16 @@ public final class UpdateManager {
                         toast(activity, "下载地址无效，请稍后在「关于此项目」里重试");
                         return;
                     }
-                    showDownloadProgress(activity, remote, name, pendingUrl, notes);
+                    final Activity act = activity;
+                    final int rcode = remote;
+                    final String rname = name;
+                    final String rurl = pendingUrl;
+                    final String rnotes = notes;
+                    new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+                        @Override public void run() {
+                            showDownloadProgress(act, rcode, rname, rurl, rnotes);
+                        }
+                    }, 150L);
                 } else if ("later".equals(action[0])) {
                     toast(activity, "已稍后提醒，下次启动会再询问");
                 } else if ("never".equals(action[0])) {
