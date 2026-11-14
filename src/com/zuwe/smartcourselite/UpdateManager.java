@@ -940,15 +940,11 @@ public final class UpdateManager {
     public static View buildUpdateRow(final Activity activity, int ink, int muted,
                                       int faint, int cardBg, final int lineColor,
                                       final int greenColor) {
+        // 外层由 AboutFooter.card() 提供圆角卡片与左右内边距，这里只排内容，
+        // 否则会套两层卡片，看起来比其它条目「小一圈」。
         LinearLayout box = new LinearLayout(activity);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(activity, 16), dp(activity, 14), dp(activity, 16), dp(activity, 14));
-
-        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-        bg.setColor(cardBg);
-        bg.setCornerRadius(dp(activity, 14));
-        bg.setStroke(Math.max(1, dp(activity, 1)), lineColor);
-        box.setBackground(bg);
+        box.setPadding(0, dp(activity, 14), 0, dp(activity, 14));
 
         LinearLayout top = new LinearLayout(activity);
         top.setOrientation(LinearLayout.HORIZONTAL);
