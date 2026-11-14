@@ -218,6 +218,7 @@ public final class UpdateManager {
                               final Runnable upToDate) {
         SharedPreferences sp = prefs(activity);
         if (checking) {
+            publishStatus("正在检查更新…");
             if (manual) toast(activity, "正在检查更新…");
             return;
         }
@@ -233,6 +234,7 @@ public final class UpdateManager {
                         latest = fallbackLatest();
                     }
                     if (latest == null) {
+                        publishStatus("检查失败：网络不可用");
                         if (manual) postToast(activity, "检查更新失败，网络不可用");
                         return;
                     }
@@ -250,6 +252,10 @@ public final class UpdateManager {
                     final int local = currentCode(app);
 
                     if (remote <= local || name.isEmpty()) {
+                        publishStatus("已是最新 v" + currentName(app));
+                        if (upToDate != null) {
+                            post(activity, upToDate);
+                        }
                         if (manual) post(activity, new Runnable() {
                             @Override public void run() {
                                 toast(activity, "已是最新版本 v" + currentName(app));
@@ -264,10 +270,12 @@ public final class UpdateManager {
                     if (!manual && skip >= remote) return;
 
                     pendingUrl = url;
+                    publishStatus("发现新版本 v" + name);
                     post(activity, new Runnable() {
                         @Override public void run() { showUpdateDialog(activity, remote, name, notes); }
                     });
                 } catch (Exception e) {
+                    publishStatus("检查失败：" + e.getClass().getSimpleName());
                     if (manual) postToast(activity, "检查更新失败：" + e.getClass().getSimpleName());
                 } finally {
                     checking = false;
@@ -317,19 +325,67 @@ public final class UpdateManager {
         if (activity == null || activity.isFinishing()) return;
         dismissDialog();
 
-        String body = (notes == null || notes.trim().isEmpty())
+        final String body = (notes == null || notes.trim().isEmpty())
                 ? "本次更新没有填写说明。"
                 : notes.trim();
-        String message = "当前 v" + currentName(activity) + "   →   最新 v" + name
-                + "\n\n更新内容\n" + body
-                + "\n\n更新为可选操作，不更新也能继续使用。";
-
         final String[] action = new String[]{""};
 
+        LinearLayout box = new LinearLayout(activity);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = dp(activity, 22);
+        box.setPadding(pad, dp(activity, 18), pad, dp(activity, 2));
+
+        TextView title = new TextView(activity);
+        title.setText("发现新版本 v" + name);
+        title.setTextSize(15f);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        title.setTextColor(themeColor(activity, android.R.attr.textColorPrimary));
+        box.addView(title);
+
+        TextView sub = new TextView(activity);
+        sub.setText("当前 v" + currentName(activity) + "   →   最新 v" + name);
+        sub.setTextSize(12f);
+        sub.setTextColor(themeColor(activity, android.R.attr.textColorSecondary));
+        sub.setPadding(0, dp(activity, 8), 0, dp(activity, 16));
+        box.addView(sub);
+
+        TextView label = new TextView(activity);
+        label.setText("更新内容");
+        label.setTextSize(13f);
+        label.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        label.setTextColor(themeColor(activity, android.R.attr.textColorPrimary));
+        box.addView(label);
+
+        final TextView content = new TextView(activity);
+        content.setText(body);
+        content.setTextSize(13f);
+        content.setLineSpacing(dp(activity, 6), 1f);
+        content.setTextColor(themeColor(activity, android.R.attr.textColorPrimary));
+        content.setPadding(0, dp(activity, 8), 0, 0);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(activity);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.addView(content, new android.widget.FrameLayout.LayoutParams(-1, -2));
+        box.addView(scroll, new LinearLayout.LayoutParams(-1, -2));
+        scroll.post(new Runnable() {
+            @Override public void run() {
+                int max = dp(activity, 280);
+                if (content.getHeight() > max) {
+                    android.view.ViewGroup.LayoutParams lp = scroll.getLayoutParams();
+                    lp.height = max;
+                    scroll.setLayoutParams(lp);
+                }
+            }
+        });
+
+        TextView tip = new TextView(activity);
+        tip.setText("更新为可选操作，不更新也能继续使用。");
+        tip.setTextSize(11f);
+        tip.setTextColor(themeColor(activity, android.R.attr.textColorSecondary));
+        tip.setPadding(0, dp(activity, 14), 0, 0);
+        box.addView(tip);
+
         AlertDialog.Builder builder = new AlertDialog.Builder(activity);
-        builder.setTitle("发现新版本 v" + name);
-        // 用系统 AlertDialog 自带的正文渲染：颜色、行距、过长时滚动都由主题处理，不会出现看不见字的情况。
-        builder.setMessage(message);
+        builder.setView(box);
         builder.setPositiveButton("立即更新", new DialogInterface.OnClickListener() {
             @Override public void onClick(DialogInterface d, int which) {
                 action[0] = "now";
@@ -355,7 +411,6 @@ public final class UpdateManager {
                     }
                     showDownloadProgress(activity, remote, name, pendingUrl, notes);
                 } else if ("later".equals(action[0])) {
-                    // 「稍后」不落标记：下次启动仍会展示公告，但绝不自动下载。
                     toast(activity, "已稍后提醒，下次启动会再询问");
                 } else if ("never".equals(action[0])) {
                     prefs(activity).edit().putInt(KEY_SKIP, remote).apply();
@@ -439,6 +494,7 @@ public final class UpdateManager {
         title.setText("正在下载 v" + name);
         title.setTextSize(15f);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        title.setTextColor(themeColor(activity, android.R.attr.textColorPrimary));
         box.addView(title);
 
         final TextView stat = new TextView(activity);
@@ -931,22 +987,22 @@ public final class UpdateManager {
                     showInstallPrompt(activity, downloadedCode(activity));
                     return;
                 }
-                status.setText("检查中…");
+                hint.setText("正在检查更新…");
+                statusViewRef = new java.lang.ref.WeakReference<TextView>(hint);
                 checkManually(activity, new Runnable() {
                     @Override public void run() {
-                        status.setText("v" + currentName(activity) + " ›");
+                        hint.setText(checkSummary(activity));
                     }
                 });
                 new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
                     @Override public void run() {
                         if (hasDownloaded(activity)) {
                             hint.setText("已下载 v" + versionNameOf(downloadedCode(activity)) + "，点此安装");
-                        }
-                        if (status.getText().toString().endsWith("检查中…")) {
-                            status.setText("v" + currentName(activity) + " ›");
+                        } else if ("正在检查更新…".equals(hint.getText().toString())) {
+                            hint.setText(checkSummary(activity));
                         }
                     }
-                }, 9000L);
+                }, 12000L);
             }
         };
         box.setOnClickListener(listener);
