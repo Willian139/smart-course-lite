@@ -1,8 +1,9 @@
 package cn.zuwe.hygiene;
 
+import android.R;
 import android.app.Activity;
+import android.app.Dialog;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
@@ -11,734 +12,1201 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.view.Gravity;
-import android.view.Window;
 import android.view.View;
+import android.view.ViewTreeObserver;
+import android.webkit.CookieManager;
 import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.HorizontalScrollView;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
-
-import org.json.JSONArray;
-import org.json.JSONObject;
-
+import com.zuwe.smartcourselite.AboutFooter;
+import com.zuwe.smartcourselite.Motion;
+import com.zuwe.smartcourselite.PageMotion;
+import com.zuwe.smartcourselite.SvgIcon;
+import com.zuwe.smartcourselite.UiPolish;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
-import com.zuwe.smartcourselite.AboutFooter;
-import com.zuwe.smartcourselite.SvgIcon;
-import com.zuwe.smartcourselite.UiPolish;
-
-/** 原生宿舍卫生检查：统一认证登录一次、token 长期复用；样式跟随 App 主题。 */
+/* loaded from: classes.dex */
 public final class HygieneHistoryActivity extends Activity {
-    private static final int REQ_LOGIN = 7;
+    private static final String KEY_DARK = "theme_dark";
     private static final String KEY_LIST_CACHE = "hyg_list_cache_";
     private static final String PREFS = "smartcourse_prefs";
-    private static final String KEY_DARK = "theme_dark";
-
+    private static final int REQ_LOGIN = 7;
+    private HygieneApi api;
+    private boolean autoLoginTried;
+    private int bg;
+    private int bgAlt;
+    private boolean busy;
+    private int cardBg;
+    private LinearLayout content;
+    private int faint;
+    private int green;
+    private int ink;
+    private JSONObject lastPage;
+    private int line;
+    private boolean loginInFlight;
+    private int muted;
+    private Dialog photoDialog;
+    private int red;
+    private HygieneSession session;
+    private boolean showingDetail;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newSingleThreadExecutor();
-    private HygieneSession session;
-    private HygieneApi api;
-    private LinearLayout content;
-    private int pageNo = 1, totalPages = 1;
-    private boolean busy;
-    private boolean showingDetail;
-    private JSONObject lastPage;
-    private final java.util.Map<String, JSONObject> detailCache = new java.util.HashMap<>();
-
+    private int pageNo = 1;
+    private int totalPages = 1;
+    private final Map<String, JSONObject> detailCache = new HashMap();
     private boolean dark = true;
-    private int bg, bgAlt, cardBg, line, ink, muted, faint, green, red;
-    private long loadedAt = 0L;
+    private long loadedAt = 0;
 
-    @Override public void onCreate(Bundle b) {
-        setTheme(android.R.style.Theme_Material_NoActionBar);
-        super.onCreate(b);
-        requestWindowFeature(Window.FEATURE_NO_TITLE);
-        SharedPreferences sp = getSharedPreferences(PREFS, 0);
-        dark = sp.getBoolean(KEY_DARK, true);
+    interface Card {
+        void build(LinearLayout linearLayout);
+    }
+
+    interface Done<T> {
+        void accept(T t);
+    }
+
+    interface Work<T> {
+        T run() throws Exception;
+    }
+
+    @Override // android.app.Activity
+    public void onCreate(Bundle bundle) {
+        setTheme(R.style.Theme_Material_NoActionBar);
+        super.onCreate(bundle);
+        requestWindowFeature(1);
+        this.dark = getSharedPreferences(PREFS, 0).getBoolean(KEY_DARK, true);
         applyPalette();
-        session = new HygieneSession(this);
+        this.session = new HygieneSession(this);
         windowChrome();
         build();
-        api = new HygieneApi(session);
-        if (session.isAuthenticated()) {
+        this.api = new HygieneApi(this.session);
+        if (this.session.isAuthenticated()) {
             renderCachedList();
             loadHistory(true);
         } else {
-            startLogin(null);
+            showLogin(null);
         }
     }
 
-    @Override protected void onResume() {
+    @Override // android.app.Activity
+    protected void onResume() {
         super.onResume();
-        // 5 分钟内从后台回来不重拉，避免一进一出就转圈或重复授权
-        if (loadedAt > 0L && System.currentTimeMillis() - loadedAt < 5L * 60L * 1000L) return;
-        if (session.isAuthenticated() && loadedAt > 0L && !busy) loadHistory(true);
+        if ((this.loadedAt <= 0 || System.currentTimeMillis() - this.loadedAt >= 300000) && this.session.isAuthenticated() && this.loadedAt > 0 && !this.busy) {
+            loadHistory(true);
+        }
     }
 
     private void applyPalette() {
-        if (dark) {
-            bg = Color.parseColor("#131312"); bgAlt = Color.parseColor("#1B1B19");
-            cardBg = Color.parseColor("#262622"); line = Color.parseColor("#3A3A35");
-            ink = Color.parseColor("#EEEAE0"); muted = Color.parseColor("#A5A198");
-            faint = Color.parseColor("#706E67"); green = Color.parseColor("#89997A");
-            red = Color.parseColor("#B1847B");
-        } else {
-            bg = Color.parseColor("#EFEDE6"); bgAlt = Color.parseColor("#E6E3DA");
-            cardBg = Color.parseColor("#FBFAF6"); line = Color.parseColor("#DAD6CB");
-            ink = Color.parseColor("#191916"); muted = Color.parseColor("#77746B");
-            faint = Color.parseColor("#AAA79D"); green = Color.parseColor("#66735D");
-            red = Color.parseColor("#936F68");
+        if (this.dark) {
+            this.bg = Color.parseColor("#181A16");
+            this.bgAlt = Color.parseColor("#252820");
+            this.cardBg = Color.parseColor("#20221D");
+            this.line = Color.parseColor("#34382F");
+            this.ink = Color.parseColor("#ECEDE6");
+            this.muted = Color.parseColor("#A3A69B");
+            this.faint = Color.parseColor("#7A7E72");
+            this.green = Color.parseColor("#95A48C");
+            this.red = Color.parseColor("#CD8B84");
+            return;
         }
+        this.bg = Color.parseColor("#F4F3EE");
+        this.bgAlt = Color.parseColor("#EAE9E1");
+        this.cardBg = Color.parseColor("#FFFFFF");
+        this.line = Color.parseColor("#E4E2D9");
+        this.ink = Color.parseColor("#282A25");
+        this.muted = Color.parseColor("#85877F");
+        this.faint = Color.parseColor("#ADAEA6");
+        this.green = Color.parseColor("#6F7C69");
+        this.red = Color.parseColor("#BA716B");
     }
 
     private void windowChrome() {
-        getWindow().setStatusBarColor(bg);
-        getWindow().setNavigationBarColor(bg);
-        int flags = dark ? 0 : View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
-        getWindow().getDecorView().setSystemUiVisibility(flags);
+        getWindow().setStatusBarColor(this.bg);
+        getWindow().setNavigationBarColor(this.bg);
+        getWindow().getDecorView().setSystemUiVisibility(this.dark ? 0 : 8192);
     }
 
     private void build() {
-        FrameLayout shell = new FrameLayout(this);
-        shell.setBackgroundColor(bg);
-        shell.setFitsSystemWindows(true);
-
-        ScrollView sc = new ScrollView(this);
-        sc.setFillViewport(true);
-        LinearLayout column = new LinearLayout(this);
-        column.setOrientation(LinearLayout.VERTICAL);
-
-        final LinearLayout head = new LinearLayout(this);
-        head.setOrientation(LinearLayout.VERTICAL);
-        head.setPadding(dp(18), dp(20), dp(18), dp(12));
-        TextView eyebrow = txt("HOUSEKEEPING / 宿舍卫生", 10, faint, false);
-        eyebrow.setLetterSpacing(0.12f);
-        head.addView(eyebrow);
-        TextView title = txt("卫生检查记录", 26, ink, true);
-        title.setLetterSpacing(-0.02f);
-        head.addView(title, top(6));
-        TextView sub = txt("统一认证登录一次，之后长期免重新登录", 11, faint, false);
-        head.addView(sub, top(5));
-        column.addView(head);
-        column.addView(hairline());
-
-        content = new LinearLayout(this);
-        content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(16), dp(14), dp(16), dp(28));
-        column.addView(content, new LinearLayout.LayoutParams(-1, -2));
-        LinearLayout about = AboutFooter.build(this, ink, muted, faint, line, cardBg, bgAlt, green);
-        about.setPadding(dp(18), 0, dp(18), dp(28));
-        column.addView(about, new LinearLayout.LayoutParams(-1, -2));
-        sc.addView(column, new LinearLayout.LayoutParams(-1, -2));
-        shell.addView(sc, new FrameLayout.LayoutParams(-1, -1));
-
-        // 折叠顶栏：随滚动淡入，标题居中（仿 iOS）
-        FrameLayout bar = new FrameLayout(this);
-        GradientDrawable barBg = new GradientDrawable();
-        barBg.setColor(bg);
-        bar.setBackground(barBg);
-        bar.setAlpha(0f);
-        final TextView barTitle = txt("卫生检查记录", 16, ink, true);
-        barTitle.setGravity(Gravity.CENTER);
-        barTitle.setAlpha(0f);
-        bar.addView(barTitle, new FrameLayout.LayoutParams(-1, -1));
-
-        FrameLayout back = roundIconChip(SvgIcon.CHEV_L, 34);
-        back.setContentDescription("返回");
-        back.setOnClickListener(v -> finish());
-        FrameLayout.LayoutParams backLp = new FrameLayout.LayoutParams(dp(34f), dp(34f), Gravity.LEFT | Gravity.CENTER_VERTICAL);
-        backLp.leftMargin = dp(12f);
-        bar.addView(back, backLp);
-
-        View barLine = new View(this);
-        barLine.setBackgroundColor(line);
-        bar.addView(barLine, new FrameLayout.LayoutParams(-1, dp(1f), Gravity.BOTTOM));
-
-        shell.addView(bar, new FrameLayout.LayoutParams(-1, dp(52f), Gravity.TOP));
-        setContentView(shell);
-        com.zuwe.smartcourselite.PageMotion.installBackdrop(this, bg);
-        com.zuwe.smartcourselite.PageMotion.fromTop(shell, 1200L);
-
-        final int barH = dp(52f);
-        sc.getViewTreeObserver().addOnScrollChangedListener(() -> {
-            int y = sc.getScrollY();
-            float t = Math.min(1f, Math.max(0f, y / (float) Math.max(1, head.getHeight() - barH)));
-            bar.setAlpha(t);
-            barTitle.setAlpha(t * t);
-            head.setAlpha(1f - 0.9f * t);
-            head.setTranslationY(-y * 0.22f);
+        FrameLayout frameLayout = new FrameLayout(this);
+        frameLayout.setBackgroundColor(this.bg);
+        frameLayout.setFitsSystemWindows(true);
+        final ScrollView scrollView = new ScrollView(this);
+        scrollView.setFillViewport(true);
+        LinearLayout linearLayout = new LinearLayout(this);
+        linearLayout.setOrientation(1);
+        final LinearLayout linearLayout2 = new LinearLayout(this);
+        linearLayout2.setOrientation(1);
+        linearLayout2.setPadding(dp(18), dp(20), dp(18), dp(12));
+        TextView txt = txt("HOUSEKEEPING / 宿舍卫生", 10, this.faint, false);
+        txt.setLetterSpacing(0.12f);
+        linearLayout2.addView(txt);
+        TextView txt2 = txt("卫生检查记录", 26, this.ink, true);
+        txt2.setLetterSpacing(-0.02f);
+        linearLayout2.addView(txt2, top(6));
+        linearLayout2.addView(txt("统一认证登录一次，之后长期免重新登录", 11, this.faint, false), top(5));
+        linearLayout.addView(linearLayout2);
+        linearLayout.addView(hairline());
+        LinearLayout linearLayout3 = new LinearLayout(this);
+        this.content = linearLayout3;
+        linearLayout3.setOrientation(1);
+        this.content.setPadding(dp(16), dp(14), dp(16), dp(28));
+        linearLayout.addView(this.content, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout build = AboutFooter.build(this, this.ink, this.muted, this.faint, this.line, this.cardBg, this.bgAlt, this.green);
+        build.setPadding(dp(18), 0, dp(18), dp(28));
+        linearLayout.addView(build, new LinearLayout.LayoutParams(-1, -2));
+        scrollView.addView(linearLayout, new LinearLayout.LayoutParams(-1, -2));
+        frameLayout.addView(scrollView, new FrameLayout.LayoutParams(-1, -1));
+        final FrameLayout frameLayout2 = new FrameLayout(this);
+        GradientDrawable gradientDrawable = new GradientDrawable();
+        gradientDrawable.setColor(this.bg);
+        frameLayout2.setBackground(gradientDrawable);
+        frameLayout2.setAlpha(0.0f);
+        final TextView txt3 = txt("卫生检查记录", 16, this.ink, true);
+        txt3.setGravity(17);
+        txt3.setAlpha(0.0f);
+        frameLayout2.addView(txt3, new FrameLayout.LayoutParams(-1, -1));
+        FrameLayout roundIconChip = roundIconChip(SvgIcon.CHEV_L, 34);
+        roundIconChip.setContentDescription("返回");
+        roundIconChip.setOnClickListener(new View.OnClickListener() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.1
+            @Override // android.view.View.OnClickListener
+            public final void onClick(View view) {
+                HygieneHistoryActivity.this.m1lambda$build$0$cnzuwehygieneHygieneHistoryActivity(view);
+            }
         });
-    }
-
-    /** 圆形图标按钮（iOS 风格，无文字）。 */
-    private FrameLayout roundIconChip(String path, int sizeDp) {
-        FrameLayout chip = new FrameLayout(this);
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(bgAlt);
-        d.setCornerRadius(dp(sizeDp / 2f));
-        chip.setBackground(d);
-        SvgIcon.IconView icon = SvgIcon.view(this, path, ink, sizeDp - 14);
-        chip.addView(icon, new FrameLayout.LayoutParams(dp(sizeDp - 14), dp(sizeDp - 14), Gravity.CENTER));
-        chip.setClickable(true);
-        UiPolish.pressable(chip);
-        return chip;
-    }
-
-    // ------------------------------------------------------------- 登录
-
-    private void verifyThenLoad() {
-        showingDetail = false;
-        content.removeAllViews();
-        addText(content, "正在校验已有登录状态…", 13, muted, false, 8);
-        final String token = session.token();
-        io.execute(new Runnable() { @Override public void run() {
-            String sn = null, err = null;
-            try {
-                JSONObject info = api.userInfo();
-                HygieneApi.ensureSuccess(info);
-                sn = HygieneApi.usernameOf(info);
-                if (sn.isEmpty()) err = "登录状态已失效";
-            } catch (Exception e) { err = e.getMessage() == null ? "登录状态已失效" : e.getMessage(); }
-            final String user = sn, error = err;
-            main.post(new Runnable() { @Override public void run() {
-                if (user != null) { session.save(token, user, user); loadHistory(user, true); }
-                else showLogin(error);
-            } });
-        } });
-    }
-
-    private void startLogin(String reason) {
-        showLogin(reason);
-        try {
-            com.zuwe.smartcourselite.PageMotion.captureBackdrop(this);
-            startActivityForResult(new Intent(this, HygieneLoginActivity.class), REQ_LOGIN);
-            overridePendingTransition(0, 0);
+        FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(34.0f), dp(34.0f), 19);
+        layoutParams.leftMargin = dp(12.0f);
+        frameLayout2.addView(roundIconChip, layoutParams);
+        View view = new View(this);
+        view.setBackgroundColor(this.line);
+        frameLayout2.addView(view, new FrameLayout.LayoutParams(-1, dp(1.0f), 80));
+        frameLayout.addView(frameLayout2, new FrameLayout.LayoutParams(-1, dp(52.0f), 48));
+        setContentView(frameLayout);
+        PageMotion.installBackdrop(this, this.bg);
+        int intExtra = getIntent().getIntExtra("reveal_x", -1);
+        int intExtra2 = getIntent().getIntExtra("reveal_y", -1);
+        if (intExtra >= 0 && intExtra2 >= 0) {
+            int identifier = getResources().getIdentifier("status_bar_height", "dimen", "android");
+            int dimensionPixelSize = identifier > 0 ? getResources().getDimensionPixelSize(identifier) : 0;
+            frameLayout.setPivotX(intExtra);
+            frameLayout.setPivotY(Math.max(0, intExtra2 - dimensionPixelSize));
+        } else {
+            frameLayout.setPivotX(getResources().getDisplayMetrics().widthPixels * 0.86f);
+            frameLayout.setPivotY(0.0f);
         }
-        catch (Exception e) { toast("无法打开统一认证登录页：" + e.getMessage()); }
-    }
-
-    private void showLogin(String reason) {
-        showingDetail = false;
-        content.removeAllViews();
-        card(box -> {
-            addText(box, "需要一次统一身份认证", 16, ink, true, 0);
-            if (reason != null && !reason.isEmpty()) addText(box, "上次登录不可用：" + reason, 11, red, false, 6);
-            addText(box, "登录成功后登录凭据会加密保存在本机，以后直接进入，不用反复登录。", 12, muted, false, 8);
-            addText(box, "与课表用的是同一个统一认证（authserver6）：课表认证仍有效时通常自动通过。", 11, faint, false, 6);
-            addButton(box, "打开统一认证登录", true, () -> {
-                com.zuwe.smartcourselite.PageMotion.captureBackdrop(this);
-                startActivityForResult(new Intent(this, HygieneLoginActivity.class), REQ_LOGIN);
-                overridePendingTransition(0, 0);
-            });
-            addButton(box, "重新校验已有登录状态", false, this::verifyThenLoad);
-        });
-    }
-
-    @Override protected void onActivityResult(int req, int res, Intent data) {
-        super.onActivityResult(req, res, data);
-        if (req != REQ_LOGIN) return;
-        if (res == RESULT_OK) verifyThenLoad();
-        else if (!session.isAuthenticated()) showLogin("未完成登录");
-    }
-
-    public void onHygieneAuthorizationCompleted(String token, String personSn) {
-        if (token == null || token.isEmpty() || personSn == null || personSn.isEmpty()) { toast("授权结果不完整"); return; }
-        session.save(token, personSn, personSn);
-        verifyThenLoad();
-    }
-
-    // ------------------------------------------------------------- 本地缓存 / 错误判定
-
-    /** 无网/进后台被杀后重启时先把上次的记录画出来，避免空白与重复授权。 */
-    private void renderCachedList() {
-        String raw = getSharedPreferences(PREFS, 0).getString(KEY_LIST_CACHE + session.personSn(), "");
-        if (raw == null || raw.isEmpty()) return;
-        try {
-            JSONObject pg = new JSONObject(raw);
-            renderListPage(pg, true);
-        } catch (Exception ignored) {
-        }
-    }
-
-    private void saveListCache(JSONObject pg) {
-        if (pg == null) return;
-        try {
-            getSharedPreferences(PREFS, 0).edit()
-                    .putString(KEY_LIST_CACHE + session.personSn(), pg.toString()).apply();
-        } catch (Exception ignored) {
-        }
-    }
-
-    /** 只有真正的认证失效才要求重新授权；网络异常绝不踢回登录页。 */
-    private static boolean isAuthError(String msg) {
-        if (msg == null) return false;
-        return msg.contains("HTTP 401") || msg.contains("HTTP 403") || msg.contains("未登录")
-                || msg.contains("登录超时") || msg.contains("登录状态已失效") || msg.contains("无效身份")
-                || msg.contains("token 无效") || msg.contains("请先登录");
-    }
-
-    // ------------------------------------------------------------- 列表
-
-    private void loadHistory(boolean reset) {
-        if (session.token().isEmpty()) { startLogin("尚未登录"); return; }
-        if (session.personSn().isEmpty()) { verifyThenLoad(); return; }
-        if (busy) return;
-        loadHistory(session.personSn(), reset);
-    }
-
-    private void loadHistory(String personSn, boolean reset) {
-        if (busy) return;
-        if (reset) pageNo = 1;
-        final int p = pageNo;
-        run("正在加载历史记录…", () -> {
-            JSONObject root = api.historyPage(p, 10, "", personSn);
-            HygieneApi.ensureSuccess(root);
-            JSONObject pg = HygieneApi.findPage(root);
-            if (pg == null) throw new IOException("分页响应缺少 page 节点");
-            return pg;
-        }, pg -> {
-            lastPage = pg;
-            renderListPage(pg, reset);
-            saveListCache(pg);
-            loadedAt = System.currentTimeMillis();
-        });
-    }
-
-    /** 列表渲染：只保留当前学期（中国高校：秋季 8/1–次年1/31，春季 2/1–7/31）。 */
-    private void renderListPage(JSONObject pg, boolean reset) {
-        showingDetail = false;
-        if (reset) content.removeAllViews();
-        totalPages = Math.max(1, pg.optInt("totalPage", pg.optInt("pages", 1)));
-        JSONArray rows = HygieneApi.findList(pg);
-        int total = pg.optInt("totalCount", pg.optInt("total", rows.length()));
-        if (reset) renderHeader(total);
-        int shown = 0;
-        for (int i = 0; i < rows.length(); i++) {
-            JSONObject o = rows.optJSONObject(i);
-            if (o == null) continue;
-            if (!inCurrentSemester(first(o, "recordTime", "createTime", "checkTime"))) continue;
-            renderRow(o);
-            shown++;
-        }
-        if (shown == 0) addText(content, "本学期暂无检查记录", 13, faint, false, 10);
-        String[] sem = currentSemester();
-        addText(content, "仅保留本学期 " + sem[0] + " ~ " + sem[1] + " 的记录", 10, faint, false, 4);
-        renderPager();
-    }
-
-    private String[] currentSemester() {
-        java.util.Calendar c = java.util.Calendar.getInstance();
-        int y = c.get(java.util.Calendar.YEAR), m = c.get(java.util.Calendar.MONTH) + 1;
-        if (m >= 8) return new String[]{y + "-08-01", (y + 1) + "-01-31"};
-        if (m == 1) return new String[]{(y - 1) + "-08-01", y + "-01-31"};
-        return new String[]{y + "-02-01", y + "-07-31"};
-    }
-
-    private boolean inCurrentSemester(String stamp) {
-        if (stamp == null || stamp.length() < 10) return true;
-        String d = stamp.substring(0, 10);
-        if (d.length() != 10 || d.charAt(4) != '-') return true;
-        String[] sem = currentSemester();
-        return d.compareTo(sem[0]) >= 0 && d.compareTo(sem[1]) <= 0;
-    }
-
-    private void renderHeader(int total) {
-        card(box -> {
-            addText(box, "个人检查档案", 15, ink, true, 0);
-            addText(box, "共 " + total + " 条记录 · 第 " + pageNo + " / " + totalPages + " 页", 11, muted, false, 5);
-            String user = session.user();
-            if (!user.isEmpty()) addText(box, "当前账号：" + user, 11, faint, false, 4);
-        });
-    }
-
-    private void renderRow(JSONObject o) {
-        if (o == null) return;
-        String id = first(o, "id", "historyRoomId", "recordId");
-        String room = first(o, "roomName", "fullName");
-        String date = first(o, "recordTime", "createTime", "checkTime");
-        String score = first(o, "totalScore", "score");
-        card(box -> {
-            addText(box, (room.isEmpty() ? "宿舍检查" : room) + "  ·  " + (date.isEmpty() ? "时间未知" : date), 14, ink, true, 0);
-            addText(box, "检查计划：" + first(o, "planName", "inspectionPlanName"), 11, faint, false, 5);
-            addText(box, "总分 " + (score.isEmpty() ? "—" : score) + " 分", 20, scoreColor(score), true, 8);
-            addText(box, "卫生分 " + first(o, "hygieneScore", "hygieneDeductScore") + "   违纪分 " + first(o, "peccancyScore", "peccancyDeductScore"), 11, muted, false, 4);
-            addButton(box, "查看检查详情", false, () -> { if (id.isEmpty()) toast("记录缺少详情 ID"); else loadDetail(id); });
-        });
-    }
-
-    private void loadDetail(final String id) {
-        JSONObject cached = detailCache.get(id);
-        if (cached != null) { renderDetail(cached); return; }
-        showingDetail = true;
-        content.removeAllViews();
-        addText(content, "正在加载检查详情…", 13, muted, false, 8);
-        run("正在加载检查详情…", () -> {
-            JSONObject root = api.historyDetail(id);
-            HygieneApi.ensureSuccess(root);
-            JSONObject data = HygieneApi.unwrapData(root);
-            JSONObject d = data.optJSONObject("historyRoom");
-            if (d == null) d = data.optJSONObject("detail");
-            return d == null ? data : d;
-        }, d -> { detailCache.put(id, d); renderDetail(d); });
-    }
-
-    private void renderDetail(JSONObject d) {
-        showingDetail = true;
-        content.removeAllViews();
-        addButton(content, "← 返回历史记录", false, this::backToList);
-        card(box -> {
-            addText(box, first(d, "fullName", "roomName"), 16, ink, true, 0);
-            addText(box, "检查计划：" + first(d, "planName"), 11, faint, false, 5);
-            addText(box, "检查时间：" + first(d, "recordTime", "checkTime"), 11, muted, false, 6);
-            addText(box, "总分 " + first(d, "totalScore", "score") + " 分", 23, scoreColor(first(d, "totalScore", "score")), true, 10);
-            addText(box, "卫生分 " + first(d, "hygieneScore") + "   违纪分 " + first(d, "peccancyScore"), 11, muted, false, 4);
-            addText(box, "检查人员：" + first(d, "createName", "checkerName"), 11, faint, false, 6);
-        });
-        compactItems("卫生评分明细", array(d, "hygieneItems", "hygieneItemList"));
-        compactItems("违纪扣分明细", array(d, "peccancyItems", "peccancyItemList"));
-        photos("现场照片", array(d, "urlList", "photoList"));
-        photos("违纪照片", array(d, "urlListToPeccancy", "peccancyPhotoList"));
-    }
-
-    /** 紧凑扣分明细：整块小卡片，一行标题 + 一行「项目 −分」小字。 */
-    private void compactItems(String title, JSONArray arr) {
-        if (arr == null || arr.length() == 0) return;
-        List<String> parts = new ArrayList<>();
-        double total = 0;
-        boolean numeric = true;
-        for (int i = 0; i < arr.length(); i++) {
-            JSONObject x = arr.optJSONObject(i);
-            if (x == null) continue;
-            String name = first(x, "standardName", "itemName");
-            if (name.isEmpty()) name = "评分项目";
-            String sc = first(x, "stardardScore", "standardScore", "deductScore", "score");
-            if (sc.isEmpty()) { parts.add(name); numeric = false; continue; }
-            parts.add(name + " −" + sc.replace("-", ""));
-            try { total += Math.abs(Double.parseDouble(sc)); } catch (Exception e) { numeric = false; }
-        }
-        if (parts.isEmpty()) return;
-        final String joined = join(parts, "　｜　");
-        final String totalLine = numeric && total > 0 ? "合计扣 " + trim(total) + " 分" : null;
-        card(box -> {
-            LinearLayout head = new LinearLayout(this);
-            head.setOrientation(LinearLayout.HORIZONTAL);
-            head.setGravity(Gravity.CENTER_VERTICAL);
-            TextView t = txt(title, 12, ink, true);
-            head.addView(t, new LinearLayout.LayoutParams(0, -2, 1f));
-            if (totalLine != null) head.addView(txt(totalLine, 11, red, true));
-            box.addView(head);
-            TextView detail = txt(joined, 11, muted, false);
-            detail.setLineSpacing(dp(3), 1f);
-            box.addView(detail, top(5));
-        });
-    }
-
-    // ------------------------------------------------------------- 照片
-
-    private void photos(String title, JSONArray arr) {
-        if (arr == null || arr.length() == 0) return;
-        final List<String> urls = new ArrayList<>();
-        for (int i = 0; i < arr.length(); i++) {
-            String u = arr.optString(i, "").trim();
-            if (u.isEmpty()) continue;
-            if (u.startsWith("/")) u = HygieneApi.BASE + u;
-            if (!u.startsWith("http")) continue;
-            urls.add(u);
-        }
-        if (urls.isEmpty()) return;
-        card(box -> {
-            box.addView(txt(title + " · 点图查看大图", 12, ink, true));
-            HorizontalScrollView hs = new HorizontalScrollView(this);
-            hs.setHorizontalScrollBarEnabled(false);
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            hs.addView(row, new HorizontalScrollView.LayoutParams(-2, dp(96)));
-            box.addView(hs, top(8));
-            for (int i = 0; i < urls.size(); i++) {
-                final int idx = i;
-                ImageView iv = new ImageView(this);
-                iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
-                GradientDrawable bgd = new GradientDrawable();
-                bgd.setColor(bgAlt); bgd.setCornerRadius(dp(8));
-                iv.setBackground(bgd);
-                iv.setContentDescription("检查照片 " + (i + 1));
-                iv.setOnClickListener(v -> previewGallery(urls, idx));
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(84), dp(84));
-                lp.rightMargin = dp(8);
-                row.addView(iv, lp);
-                loadThumb(urls.get(i), iv);
+        frameLayout.setScaleX(0.86f);
+        frameLayout.setScaleY(0.86f);
+        frameLayout.setAlpha(0.0f);
+        frameLayout.animate().scaleX(1.0f).scaleY(1.0f).alpha(1.0f).setDuration(420L).setInterpolator(Motion.ENTER).start();
+        final int dp = dp(52.0f);
+        scrollView.getViewTreeObserver().addOnScrollChangedListener(new ViewTreeObserver.OnScrollChangedListener() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.2
+            @Override // android.view.ViewTreeObserver.OnScrollChangedListener
+            public final void onScrollChanged() {
+                HygieneHistoryActivity.lambda$build$1(scrollView, linearLayout2, dp, frameLayout2, txt3);
             }
         });
     }
 
-    private void loadThumb(final String url, final ImageView iv) {
-        io.execute(() -> {
-            Bitmap bm = downloadBitmap(url, 320);
-            if (bm != null) main.post(() -> { try { iv.setImageBitmap(bm); } catch (Exception ignored) {} });
-        });
+    void m1lambda$build$0$cnzuwehygieneHygieneHistoryActivity(View view) {
+        finish();
     }
 
-    /** 全屏图集：左右滑动切换，图片异步加载，不再跳浏览器。 */
-    private void previewGallery(final List<String> urls, int startIndex) {
-        final int screenW = getResources().getDisplayMetrics().widthPixels;
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setBackgroundColor(Color.parseColor("#0E0E0D"));
-        HorizontalScrollView hs = new HorizontalScrollView(this);
-        hs.setHorizontalScrollBarEnabled(false);
-        LinearLayout pages = new LinearLayout(this);
-        pages.setOrientation(LinearLayout.HORIZONTAL);
-        hs.addView(pages, new HorizontalScrollView.LayoutParams(-2, -1));
-        for (int i = 0; i < urls.size(); i++) {
-            LinearLayout page = new LinearLayout(this);
-            page.setOrientation(LinearLayout.VERTICAL);
-            TextView loading = txt("加载中…", 11, Color.parseColor("#706E67"), false);
-            loading.setGravity(Gravity.CENTER);
-            ImageView iv = new ImageView(this);
-            iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            iv.setContentDescription("检查照片 " + (i + 1));
-            page.addView(iv, new LinearLayout.LayoutParams(-1, 0, 1f));
-            TextView cap = txt("第 " + (i + 1) + " / " + urls.size() + " 张 · 左右滑动切换", 11, Color.parseColor("#A5A198"), false);
-            cap.setGravity(Gravity.CENTER);
-            cap.setPadding(0, dp(4), 0, dp(8));
-            page.addView(cap, new LinearLayout.LayoutParams(-1, -2));
-            pages.addView(page, new LinearLayout.LayoutParams(screenW, -1));
-            loadFull(urls.get(i), iv, screenW, loading);
-        }
-        box.addView(hs, new LinearLayout.LayoutParams(-1, 0, 1f));
-        Button close = ghost("关闭");
-        close.setTextColor(Color.parseColor("#EEEAE0"));
-        close.setOnClickListener(v -> { if (photoDialog != null) { photoDialog.dismiss(); photoDialog = null; } });
-        box.addView(close, new LinearLayout.LayoutParams(-1, dp(46)));
-        photoDialog = new android.app.Dialog(this, android.R.style.Theme_Black_NoTitleBar);
-        photoDialog.setContentView(box);
-        photoDialog.show();
-        final int offset = Math.max(0, startIndex) * screenW;
-        hs.post(() -> hs.scrollTo(offset, 0));
+    static void lambda$build$1(ScrollView scrollView, LinearLayout linearLayout, int i, FrameLayout frameLayout, TextView textView) {
+        float min = Math.min(1.0f, Math.max(0.0f, scrollView.getScrollY() / Math.max(1, linearLayout.getHeight() - i)));
+        frameLayout.setAlpha(min);
+        textView.setAlpha(min * min);
+        linearLayout.setAlpha(1.0f - (min * 0.9f));
+        linearLayout.setTranslationY((-scrollView.getScrollY()) * 0.22f);
     }
 
-    private void loadFull(final String url, final ImageView iv, final int maxSide, final TextView loading) {
-        io.execute(() -> {
-            Bitmap bm = downloadBitmap(url, Math.max(480, maxSide));
-            main.post(() -> {
+    private FrameLayout roundIconChip(String str, int i) {
+        FrameLayout frameLayout = new FrameLayout(this);
+        GradientDrawable gradientDrawable = new GradientDrawable();
+        gradientDrawable.setColor(this.bgAlt);
+        gradientDrawable.setCornerRadius(dp(i / 2.0f));
+        frameLayout.setBackground(gradientDrawable);
+        int i2 = i - 14;
+        frameLayout.addView(SvgIcon.view(this, str, this.ink, i2), new FrameLayout.LayoutParams(dp(i2), dp(i2), 17));
+        frameLayout.setClickable(true);
+        UiPolish.pressable(frameLayout);
+        return frameLayout;
+    }
+
+    public void verifyThenLoad() {
+        this.showingDetail = false;
+        this.content.removeAllViews();
+        addText(this.content, "正在校验已有登录状态…", 13, this.muted, false, 8);
+        final String str = this.session.token();
+        this.io.execute(new Runnable() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.3
+            @Override // java.lang.Runnable
+            public void run() {
+                String str2;
                 try {
-                    if (bm != null) { iv.setImageBitmap(bm); loading.setVisibility(View.GONE); }
-                    else loading.setText("这张照片加载失败");
-                } catch (Exception ignored) {}
-            });
-        });
-    }
-
-    private android.app.Dialog photoDialog;
-
-    private Bitmap downloadBitmap(String url, int maxSide) {
-        try {
-            HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
-            c.setConnectTimeout(15000); c.setReadTimeout(30000);
-            c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) SmartCourseLite");
-            String cookie = android.webkit.CookieManager.getInstance().getCookie(HygieneApi.BASE + "/");
-            if (cookie != null && !cookie.isEmpty()) c.setRequestProperty("Cookie", cookie);
-            if (c.getResponseCode() != 200) return null;
-            InputStream in = c.getInputStream();
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            byte[] buf = new byte[8192]; int n;
-            while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
-            in.close(); c.disconnect();
-            byte[] data = out.toByteArray();
-            BitmapFactory.Options opts = new BitmapFactory.Options();
-            opts.inJustDecodeBounds = true;
-            BitmapFactory.decodeByteArray(data, 0, data.length, opts);
-            int sample = 1;
-            if (maxSide > 0) {
-                while (opts.outWidth / (sample * 2) >= maxSide || opts.outHeight / (sample * 2) >= maxSide) sample *= 2;
-            }
-            BitmapFactory.Options o2 = new BitmapFactory.Options();
-            o2.inSampleSize = sample;
-            return BitmapFactory.decodeByteArray(data, 0, data.length, o2);
-        } catch (Throwable t) { return null; }
-    }
-
-    // ------------------------------------------------------------- 分页
-
-    private void renderPager() {
-        if (totalPages <= 1) return;
-        LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        Button prev = ghost("上一页");
-        prev.setEnabled(pageNo > 1);
-        prev.setOnClickListener(v -> { pageNo--; loadHistory(false); });
-        Button next = ghost("下一页");
-        next.setEnabled(pageNo < totalPages);
-        next.setOnClickListener(v -> { pageNo++; loadHistory(false); });
-        row.addView(prev, new LinearLayout.LayoutParams(0, dp(40), 1f));
-        TextView p = txt(pageNo + " / " + totalPages, 11, muted, false);
-        p.setGravity(Gravity.CENTER);
-        row.addView(p, new LinearLayout.LayoutParams(dp(72), -2));
-        row.addView(next, new LinearLayout.LayoutParams(0, dp(40), 1f));
-        content.addView(row, top(10));
-    }
-
-    // ------------------------------------------------------------- 工具
-
-    private interface Work<T> { T run() throws Exception; }
-    private interface Done<T> { void accept(T v); }
-    private <T> void run(String label, Work<T> w, Done<T> done) {
-        if (busy) return;
-        busy = true;
-        io.execute(() -> {
-            try {
-                T v = w.run();
-                main.post(() -> { busy = false; done.accept(v); });
-            } catch (Exception e) {
-                final String msg = e.getMessage() == null ? label + "失败" : e.getMessage();
-                main.post(() -> {
-                    busy = false;
-                    if (isAuthError(msg)) {
-                        showLogin("登录状态已失效");
-                    } else {
-                        toast("网络异常，稍后重试：" + msg);
+                    JSONObject userInfo = HygieneHistoryActivity.this.api.userInfo();
+                    HygieneApi.ensureSuccess(userInfo);
+                    str2 = HygieneApi.usernameOf(userInfo);
+                } catch (Exception e) {
+                    if (e.getMessage() != null) {
+                        e.getMessage();
+                    }
+                    str2 = null;
+                }
+                final String fs2 = str2;
+                final String str3 = str;
+                HygieneHistoryActivity.this.main.post(new Runnable() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.3.1
+                    @Override // java.lang.Runnable
+                    public void run() {
+                        if (fs2 != null) {
+                            HygieneSession hygieneSession = HygieneHistoryActivity.this.session;
+                            String str4 = str3;
+                            String str5 = fs2;
+                            hygieneSession.save(str4, str5, str5);
+                            HygieneHistoryActivity.this.loadHistory(fs2, true);
+                            return;
+                        }
+                        HygieneHistoryActivity.this.session.clear();
+                        HygieneHistoryActivity.this.showLogin("请重新登录卫生检查");
                     }
                 });
             }
         });
     }
 
-    private interface Card { void build(LinearLayout box); }
-    private void card(Card c) {
-        LinearLayout b = new LinearLayout(this);
-        b.setOrientation(LinearLayout.VERTICAL);
-        b.setPadding(dp(14), dp(13), dp(14), dp(13));
-        GradientDrawable bgd = new GradientDrawable();
-        bgd.setColor(cardBg); bgd.setCornerRadius(dp(12)); bgd.setStroke(dp(1), line);
-        b.setBackground(bgd);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.bottomMargin = dp(10);
-        content.addView(b, lp);
-        c.build(b);
+    public void showLogin(final String str) {
+        if (!this.autoLoginTried && !this.loginInFlight && !this.session.isAuthenticated()) {
+            this.autoLoginTried = true;
+            this.loginInFlight = true;
+            toast("正在用课表凭证自动登录卫生检查…");
+            PageMotion.captureBackdrop(this);
+            Intent intent = new Intent(this, (Class<?>) HygieneLoginActivity.class);
+            intent.addFlags(536870912);
+            startActivityForResult(intent, REQ_LOGIN);
+            overridePendingTransition(0, 0);
+        }
+        final LinearLayout linearLayout = new LinearLayout(this);
+        linearLayout.setOrientation(1);
+        this.content.removeAllViews();
+        this.content.addView(linearLayout);
+        this.main.post(new Runnable() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.4
+            @Override // java.lang.Runnable
+            public void run() {
+                HygieneHistoryActivity.this.m21lambda$showLogin$0$cnzuwehygieneHygieneHistoryActivity(str, linearLayout);
+            }
+        });
     }
 
-    private TextView txt(String s, int sp, int color, boolean bold) {
-        TextView t = new TextView(this);
-        t.setText(s); t.setTextSize(sp); t.setTextColor(color);
-        if (bold) t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        return t;
+    void m21lambda$showLogin$0$cnzuwehygieneHygieneHistoryActivity(String str, LinearLayout linearLayout) {
+        addText(linearLayout, "需要一次统一身份认证", 16, this.ink, true, 0);
+        if (str != null && !str.isEmpty()) {
+            addText(linearLayout, "上次登录不可用：" + str, 11, this.red, false, 6);
+        }
+        addText(linearLayout, "登录成功后登录凭据会加密保存在本机，以后直接进入，不用反复登录。", 12, this.muted, false, 8);
+        addText(linearLayout, "与课表用的是同一个统一认证（authserver6）：课表认证仍有效时通常自动通过。", 11, this.faint, false, 6);
+        addButton(linearLayout, "打开统一认证登录", true, new Runnable() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.5
+            @Override // java.lang.Runnable
+            public final void run() {
+                HygieneHistoryActivity.this.m22lambda$showLogin$1$cnzuwehygieneHygieneHistoryActivity();
+            }
+        });
+        addButton(linearLayout, "重新校验已有登录状态", false, new Runnable() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.6
+            @Override // java.lang.Runnable
+            public final void run() {
+                HygieneHistoryActivity.this.verifyThenLoad();
+            }
+        });
     }
 
-    private void addText(LinearLayout p, String s, int sp, int color, boolean bold, int topDp) {
-        TextView t = txt(s, sp, color, bold);
-        if (topDp > 0) t.setPadding(0, dp(topDp), 0, 0);
-        p.addView(t);
+    void m22lambda$showLogin$1$cnzuwehygieneHygieneHistoryActivity() {
+        PageMotion.captureBackdrop(this);
+        startActivityForResult(new Intent(this, (Class<?>) HygieneLoginActivity.class), REQ_LOGIN);
+        overridePendingTransition(0, 0);
     }
 
-    private Button ghost(String text) {
-        Button b = new Button(this);
-        b.setText(text); b.setAllCaps(false); b.setTextSize(12f); b.setTextColor(muted);
-        b.setStateListAnimator(null);
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(bgAlt); d.setCornerRadius(dp(20)); d.setStroke(dp(1), line);
-        b.setBackground(d);
-        return b;
+    @Override // android.app.Activity
+    protected void onActivityResult(int i, int i2, Intent intent) {
+        super.onActivityResult(i, i2, intent);
+        if (i != REQ_LOGIN) {
+            return;
+        }
+        this.loginInFlight = false;
+        if (i2 == -1) {
+            verifyThenLoad();
+        } else {
+            if (this.session.isAuthenticated()) {
+                return;
+            }
+            showLogin("未完成登录");
+        }
     }
 
-    private Button primary(String text) {
-        Button b = ghost(text);
-        b.setTextColor(Color.parseColor("#161611"));
-        b.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(green); d.setCornerRadius(dp(20));
-        b.setBackground(d);
-        return b;
+    public void onHygieneAuthorizationCompleted(String str, String str2) {
+        if (str == null || str.isEmpty() || str2 == null || str2.isEmpty()) {
+            toast("授权结果不完整");
+        } else {
+            this.session.save(str, str2, str2);
+            verifyThenLoad();
+        }
     }
 
-    private void addButton(LinearLayout p, String s, boolean primaryStyle, Runnable r) {
-        Button b = primaryStyle ? primary(s) : ghost(s);
-        b.setOnClickListener(v -> r.run());
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(42));
-        lp.topMargin = dp(8);
-        p.addView(b, lp);
+    private void renderCachedList() {
+        String string = getSharedPreferences(PREFS, 0).getString(KEY_LIST_CACHE + this.session.personSn(), "");
+        if (string == null || string.isEmpty()) {
+            return;
+        }
+        try {
+            renderListPage(new JSONObject(string), true);
+        } catch (Exception unused) {
+        }
+    }
+
+    private void saveListCache(JSONObject jSONObject) {
+        if (jSONObject == null) {
+            return;
+        }
+        try {
+            getSharedPreferences(PREFS, 0).edit().putString(KEY_LIST_CACHE + this.session.personSn(), jSONObject.toString()).apply();
+        } catch (Exception unused) {
+        }
+    }
+
+    private static boolean isAuthError(String str) {
+        if (str == null) {
+            return false;
+        }
+        return str.contains("HTTP 401") || str.contains("HTTP 403") || str.contains("401") || str.contains("403") || str.contains("未登录") || str.contains("登录超时") || str.contains("登录状态已失效") || str.contains("无效身份") || str.contains("token 无效") || str.contains("请先登录") || str.toLowerCase().contains("token") || str.contains("失效") || str.contains("过期") || str.contains("重新登录") || str.contains("凭证");
+    }
+
+    private void loadHistory(boolean z) {
+        if (this.session.token().isEmpty()) {
+            showLogin("尚未登录");
+        } else if (this.session.personSn().isEmpty()) {
+            verifyThenLoad();
+        } else {
+            if (this.busy) {
+                return;
+            }
+            loadHistory(this.session.personSn(), z);
+        }
+    }
+
+    public void loadHistory(final String str, final boolean z) {
+        if (this.busy) {
+            return;
+        }
+        if (z) {
+            this.pageNo = 1;
+        }
+        final int i = this.pageNo;
+        run("正在加载历史记录…", new Work() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.7
+            @Override // cn.zuwe.hygiene.HygieneHistoryActivity.Work
+            public final Object run() {
+                try {
+                    return HygieneHistoryActivity.this.m6lambda$loadHistory$0$cnzuwehygieneHygieneHistoryActivity(i, str);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        }, new Done() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.8
+            @Override // cn.zuwe.hygiene.HygieneHistoryActivity.Done
+            public final void accept(Object obj) {
+                HygieneHistoryActivity.this.m7lambda$loadHistory$1$cnzuwehygieneHygieneHistoryActivity(z, (JSONObject) obj);
+            }
+        });
+    }
+
+    JSONObject m6lambda$loadHistory$0$cnzuwehygieneHygieneHistoryActivity(int i, String str) throws Exception {
+        JSONObject historyPage = this.api.historyPage(i, 10, "", str);
+        HygieneApi.ensureSuccess(historyPage);
+        JSONObject findPage = HygieneApi.findPage(historyPage);
+        if (findPage != null) {
+            return findPage;
+        }
+        throw new IOException("分页响应缺少 page 节点");
+    }
+
+    void m7lambda$loadHistory$1$cnzuwehygieneHygieneHistoryActivity(boolean z, JSONObject jSONObject) {
+        this.lastPage = jSONObject;
+        renderListPage(jSONObject, z);
+        saveListCache(jSONObject);
+        this.loadedAt = System.currentTimeMillis();
+    }
+
+    private void renderListPage(JSONObject jSONObject, boolean z) {
+        this.showingDetail = false;
+        if (z) {
+            this.content.removeAllViews();
+        }
+        this.totalPages = Math.max(1, jSONObject.optInt("totalPage", jSONObject.optInt("pages", 1)));
+        JSONArray findList = HygieneApi.findList(jSONObject);
+        int optInt = jSONObject.optInt("totalCount", jSONObject.optInt("total", findList.length()));
+        if (z) {
+            renderHeader(optInt);
+        }
+        int i = 0;
+        for (int i2 = 0; i2 < findList.length(); i2++) {
+            JSONObject optJSONObject = findList.optJSONObject(i2);
+            if (optJSONObject != null && inCurrentSemester(first(optJSONObject, "recordTime", "createTime", "checkTime"))) {
+                renderRow(optJSONObject);
+                i++;
+            }
+        }
+        if (i == 0) {
+            addText(this.content, "本学期暂无检查记录", 13, this.faint, false, 10);
+        }
+        String[] currentSemester = currentSemester();
+        addText(this.content, "仅保留本学期 " + currentSemester[0] + " ~ " + currentSemester[1] + " 的记录", 10, this.faint, false, 4);
+        renderPager();
+    }
+
+    private String[] currentSemester() {
+        Calendar calendar = Calendar.getInstance();
+        int i = calendar.get(1);
+        int i2 = calendar.get(2) + 1;
+        if (i2 >= 8) {
+            return new String[]{i + "-08-01", (i + 1) + "-01-31"};
+        }
+        if (i2 == 1) {
+            StringBuilder sb = new StringBuilder();
+            sb.append(i - 1);
+            sb.append("-08-01");
+            return new String[]{sb.toString(), i + "-01-31"};
+        }
+        return new String[]{i + "-02-01", i + "-07-31"};
+    }
+
+    private boolean inCurrentSemester(String str) {
+        if (str == null || str.length() < 10) {
+            return true;
+        }
+        String substring = str.substring(0, 10);
+        if (substring.length() != 10 || substring.charAt(4) != '-') {
+            return true;
+        }
+        String[] currentSemester = currentSemester();
+        return substring.compareTo(currentSemester[0]) >= 0 && substring.compareTo(currentSemester[1]) <= 0;
+    }
+
+    private void renderHeader(final int i) {
+        card(new Card() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.9
+            @Override // cn.zuwe.hygiene.HygieneHistoryActivity.Card
+            public final void build(LinearLayout linearLayout) {
+                HygieneHistoryActivity.this.m13lambda$renderHeader$0$cnzuwehygieneHygieneHistoryActivity(i, linearLayout);
+            }
+        });
+    }
+
+    void m13lambda$renderHeader$0$cnzuwehygieneHygieneHistoryActivity(int i, LinearLayout linearLayout) {
+        addText(linearLayout, "个人检查档案", 15, this.ink, true, 0);
+        addText(linearLayout, "共 " + i + " 条记录 · 第 " + this.pageNo + " / " + this.totalPages + " 页", 11, this.muted, false, 5);
+        String user = this.session.user();
+        if (user.isEmpty()) {
+            return;
+        }
+        addText(linearLayout, "当前账号：" + user, 11, this.faint, false, 4);
+    }
+
+    private void renderRow(final JSONObject jSONObject) {
+        if (jSONObject == null) {
+            return;
+        }
+        final String first = first(jSONObject, "id", "historyRoomId", "recordId");
+        final String first2 = first(jSONObject, "roomName", "fullName");
+        final String first3 = first(jSONObject, "recordTime", "createTime", "checkTime");
+        final String first4 = first(jSONObject, "totalScore", "score");
+        card(new Card() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.10
+            @Override // cn.zuwe.hygiene.HygieneHistoryActivity.Card
+            public final void build(LinearLayout linearLayout) {
+                HygieneHistoryActivity.this.m16lambda$renderRow$0$cnzuwehygieneHygieneHistoryActivity(first2, first3, jSONObject, first4, first, linearLayout);
+            }
+        });
+    }
+
+    void m16lambda$renderRow$0$cnzuwehygieneHygieneHistoryActivity(String str, String str2, JSONObject jSONObject, String str3, final String str4, LinearLayout linearLayout) {
+        StringBuilder sb = new StringBuilder();
+        if (str.isEmpty()) {
+            str = "宿舍检查";
+        }
+        sb.append(str);
+        sb.append("  ·  ");
+        if (str2.isEmpty()) {
+            str2 = "时间未知";
+        }
+        sb.append(str2);
+        addText(linearLayout, sb.toString(), 14, this.ink, true, 0);
+        addText(linearLayout, "检查计划：" + first(jSONObject, "planName", "inspectionPlanName"), 11, this.faint, false, 5);
+        StringBuilder sb2 = new StringBuilder("总分 ");
+        sb2.append(str3.isEmpty() ? "—" : str3);
+        sb2.append(" 分");
+        addText(linearLayout, sb2.toString(), 20, scoreColor(str3), true, 8);
+        addText(linearLayout, "卫生分 " + first(jSONObject, "hygieneScore", "hygieneDeductScore") + "   违纪分 " + first(jSONObject, "peccancyScore", "peccancyDeductScore"), 11, this.muted, false, 4);
+        addButton(linearLayout, "查看检查详情", false, new Runnable() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.11
+            @Override // java.lang.Runnable
+            public final void run() {
+                HygieneHistoryActivity.this.m17lambda$renderRow$1$cnzuwehygieneHygieneHistoryActivity(str4);
+            }
+        });
+    }
+
+    void m17lambda$renderRow$1$cnzuwehygieneHygieneHistoryActivity(String str) {
+        if (str.isEmpty()) {
+            toast("记录缺少详情 ID");
+        } else {
+            loadDetail(str);
+        }
+    }
+
+    private void loadDetail(final String str) {
+        JSONObject jSONObject = this.detailCache.get(str);
+        if (jSONObject != null) {
+            renderDetail(jSONObject);
+            return;
+        }
+        this.showingDetail = true;
+        this.content.removeAllViews();
+        addText(this.content, "正在加载检查详情…", 13, this.muted, false, 8);
+        run("正在加载检查详情…", new Work() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.12
+            @Override // cn.zuwe.hygiene.HygieneHistoryActivity.Work
+            public final Object run() {
+                try {
+                    return HygieneHistoryActivity.this.m3lambda$loadDetail$0$cnzuwehygieneHygieneHistoryActivity(str);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        }, new Done() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.13
+            @Override // cn.zuwe.hygiene.HygieneHistoryActivity.Done
+            public final void accept(Object obj) {
+                HygieneHistoryActivity.this.m4lambda$loadDetail$1$cnzuwehygieneHygieneHistoryActivity(str, (JSONObject) obj);
+            }
+        });
+    }
+
+    JSONObject m3lambda$loadDetail$0$cnzuwehygieneHygieneHistoryActivity(String str) throws Exception {
+        JSONObject historyDetail = this.api.historyDetail(str);
+        HygieneApi.ensureSuccess(historyDetail);
+        JSONObject unwrapData = HygieneApi.unwrapData(historyDetail);
+        JSONObject optJSONObject = unwrapData.optJSONObject("historyRoom");
+        if (optJSONObject == null) {
+            optJSONObject = unwrapData.optJSONObject("detail");
+        }
+        return optJSONObject == null ? unwrapData : optJSONObject;
+    }
+
+    void m4lambda$loadDetail$1$cnzuwehygieneHygieneHistoryActivity(String str, JSONObject jSONObject) {
+        this.detailCache.put(str, jSONObject);
+        renderDetail(jSONObject);
+    }
+
+    private void renderDetail(final JSONObject jSONObject) {
+        this.showingDetail = true;
+        this.content.removeAllViews();
+        addButton(this.content, "← 返回历史记录", false, new Runnable() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.14
+            @Override // java.lang.Runnable
+            public final void run() {
+                HygieneHistoryActivity.this.backToList();
+            }
+        });
+        card(new Card() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.15
+            @Override // cn.zuwe.hygiene.HygieneHistoryActivity.Card
+            public final void build(LinearLayout linearLayout) {
+                HygieneHistoryActivity.this.m12lambda$renderDetail$0$cnzuwehygieneHygieneHistoryActivity(jSONObject, linearLayout);
+            }
+        });
+        compactItems("卫生评分明细", array(jSONObject, "hygieneItems", "hygieneItemList"));
+        compactItems("违纪扣分明细", array(jSONObject, "peccancyItems", "peccancyItemList"));
+        photos("现场照片", array(jSONObject, "urlList", "photoList"));
+        photos("违纪照片", array(jSONObject, "urlListToPeccancy", "peccancyPhotoList"));
+    }
+
+    void m12lambda$renderDetail$0$cnzuwehygieneHygieneHistoryActivity(JSONObject jSONObject, LinearLayout linearLayout) {
+        addText(linearLayout, first(jSONObject, "fullName", "roomName"), 16, this.ink, true, 0);
+        addText(linearLayout, "检查计划：" + first(jSONObject, "planName"), 11, this.faint, false, 5);
+        addText(linearLayout, "检查时间：" + first(jSONObject, "recordTime", "checkTime"), 11, this.muted, false, 6);
+        addText(linearLayout, "总分 " + first(jSONObject, "totalScore", "score") + " 分", 23, scoreColor(first(jSONObject, "totalScore", "score")), true, 10);
+        addText(linearLayout, "卫生分 " + first(jSONObject, "hygieneScore") + "   违纪分 " + first(jSONObject, "peccancyScore"), 11, this.muted, false, 4);
+        StringBuilder sb = new StringBuilder("检查人员：");
+        sb.append(first(jSONObject, "createName", "checkerName"));
+        addText(linearLayout, sb.toString(), 11, this.faint, false, 6);
+    }
+
+    private void compactItems(final String str, JSONArray jSONArray) {
+        if (jSONArray == null || jSONArray.length() == 0) {
+            return;
+        }
+        ArrayList arrayList = new ArrayList();
+        boolean z = true;
+        double d = 0.0d;
+        for (int i = 0; i < jSONArray.length(); i++) {
+            JSONObject optJSONObject = jSONArray.optJSONObject(i);
+            if (optJSONObject != null) {
+                String first = first(optJSONObject, "standardName", "itemName");
+                if (first.isEmpty()) {
+                    first = "评分项目";
+                }
+                String first2 = first(optJSONObject, "stardardScore", "standardScore", "deductScore", "score");
+                if (first2.isEmpty()) {
+                    arrayList.add(first);
+                } else {
+                    arrayList.add(first + " −" + first2.replace("-", ""));
+                    try {
+                        d += Math.abs(Double.parseDouble(first2));
+                    } catch (Exception unused) {
+                    }
+                }
+                z = false;
+            }
+        }
+        if (arrayList.isEmpty()) {
+            return;
+        }
+        final String join = join(arrayList, "\u3000｜\u3000");
+        final String str2 = (!z || d <= 0.0d) ? null : "合计扣 " + trim(d) + " 分";
+        card(new Card() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.16
+            @Override // cn.zuwe.hygiene.HygieneHistoryActivity.Card
+            public final void build(LinearLayout linearLayout) {
+                HygieneHistoryActivity.this.m2lambda$compactItems$0$cnzuwehygieneHygieneHistoryActivity(str, str2, join, linearLayout);
+            }
+        });
+    }
+
+    void m2lambda$compactItems$0$cnzuwehygieneHygieneHistoryActivity(String str, String str2, String str3, LinearLayout linearLayout) {
+        LinearLayout linearLayout2 = new LinearLayout(this);
+        linearLayout2.setOrientation(0);
+        linearLayout2.setGravity(16);
+        linearLayout2.addView(txt(str, 12, this.ink, true), new LinearLayout.LayoutParams(0, -2, 1.0f));
+        if (str2 != null) {
+            linearLayout2.addView(txt(str2, 11, this.red, true));
+        }
+        linearLayout.addView(linearLayout2);
+        TextView txt = txt(str3, 11, this.muted, false);
+        txt.setLineSpacing(dp(3), 1.0f);
+        linearLayout.addView(txt, top(5));
+    }
+
+    private void photos(final String str, JSONArray jSONArray) {
+        if (jSONArray == null || jSONArray.length() == 0) {
+            return;
+        }
+        final ArrayList arrayList = new ArrayList();
+        for (int i = 0; i < jSONArray.length(); i++) {
+            String trim = jSONArray.optString(i, "").trim();
+            if (!trim.isEmpty()) {
+                if (trim.startsWith("/")) {
+                    trim = HygieneApi.BASE + trim;
+                }
+                if (trim.startsWith("http")) {
+                    arrayList.add(trim);
+                }
+            }
+        }
+        if (arrayList.isEmpty()) {
+            return;
+        }
+        card(new Card() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.17
+            @Override // cn.zuwe.hygiene.HygieneHistoryActivity.Card
+            public final void build(LinearLayout linearLayout) {
+                HygieneHistoryActivity.this.m9lambda$photos$0$cnzuwehygieneHygieneHistoryActivity(str, arrayList, linearLayout);
+            }
+        });
+    }
+
+    void m9lambda$photos$0$cnzuwehygieneHygieneHistoryActivity(String str, final List list, LinearLayout linearLayout) {
+        linearLayout.addView(txt(str + " · 点图查看大图", 12, this.ink, true));
+        HorizontalScrollView horizontalScrollView = new HorizontalScrollView(this);
+        int i = 0;
+        horizontalScrollView.setHorizontalScrollBarEnabled(false);
+        LinearLayout linearLayout2 = new LinearLayout(this);
+        linearLayout2.setOrientation(0);
+        horizontalScrollView.addView(linearLayout2, new FrameLayout.LayoutParams(-2, dp(96)));
+        linearLayout.addView(horizontalScrollView, top(8));
+        while (i < list.size()) {
+            ImageView imageView = new ImageView(this);
+            imageView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            GradientDrawable gradientDrawable = new GradientDrawable();
+            gradientDrawable.setColor(this.bgAlt);
+            gradientDrawable.setCornerRadius(dp(8));
+            imageView.setBackground(gradientDrawable);
+            StringBuilder sb = new StringBuilder("检查照片 ");
+            int i2 = i + 1;
+            sb.append(i2);
+            imageView.setContentDescription(sb.toString());
+            final int fi = i;
+            imageView.setOnClickListener(new View.OnClickListener() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.18
+                @Override // android.view.View.OnClickListener
+                public final void onClick(View view) {
+                    HygieneHistoryActivity.this.m10lambda$photos$1$cnzuwehygieneHygieneHistoryActivity(list, fi, view);
+                }
+            });
+            LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(dp(84), dp(84));
+            layoutParams.rightMargin = dp(8);
+            linearLayout2.addView(imageView, layoutParams);
+            loadThumb((String) list.get(i), imageView);
+            i = i2;
+        }
+    }
+
+    void m10lambda$photos$1$cnzuwehygieneHygieneHistoryActivity(List list, int i, View view) {
+        previewGallery(list, i);
+    }
+
+    private void loadThumb(final String str, final ImageView imageView) {
+        this.io.execute(new Runnable() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.19
+            @Override // java.lang.Runnable
+            public final void run() {
+                HygieneHistoryActivity.this.m8lambda$loadThumb$0$cnzuwehygieneHygieneHistoryActivity(str, imageView);
+            }
+        });
+    }
+
+    void m8lambda$loadThumb$0$cnzuwehygieneHygieneHistoryActivity(String str, final ImageView imageView) {
+        final Bitmap downloadBitmap = downloadBitmap(str, 320);
+        if (downloadBitmap != null) {
+            this.main.post(new Runnable() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.20
+                @Override // java.lang.Runnable
+                public final void run() {
+                    imageView.setImageBitmap(downloadBitmap);
+                }
+            });
+        }
+    }
+
+    private void previewGallery(List<String> list, int i) {
+        int i2 = getResources().getDisplayMetrics().widthPixels;
+        LinearLayout linearLayout = new LinearLayout(this);
+        int i3 = 1;
+        linearLayout.setOrientation(1);
+        linearLayout.setBackgroundColor(Color.parseColor("#0E0E0D"));
+        final HorizontalScrollView horizontalScrollView = new HorizontalScrollView(this);
+        horizontalScrollView.setHorizontalScrollBarEnabled(false);
+        LinearLayout linearLayout2 = new LinearLayout(this);
+        linearLayout2.setOrientation(0);
+        horizontalScrollView.addView(linearLayout2, new FrameLayout.LayoutParams(-2, -1));
+        int i4 = 0;
+        while (i4 < list.size()) {
+            LinearLayout linearLayout3 = new LinearLayout(this);
+            linearLayout3.setOrientation(i3);
+            TextView txt = txt("加载中…", 11, Color.parseColor("#706E67"), false);
+            txt.setGravity(17);
+            ImageView imageView = new ImageView(this);
+            imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            StringBuilder sb = new StringBuilder("检查照片 ");
+            int i5 = i4 + 1;
+            sb.append(i5);
+            imageView.setContentDescription(sb.toString());
+            linearLayout3.addView(imageView, new LinearLayout.LayoutParams(-1, 0, 1.0f));
+            TextView txt2 = txt("第 " + i5 + " / " + list.size() + " 张 · 左右滑动切换", 11, Color.parseColor("#A5A198"), false);
+            txt2.setGravity(17);
+            txt2.setPadding(0, dp(4), 0, dp(8));
+            linearLayout3.addView(txt2, new LinearLayout.LayoutParams(-1, -2));
+            linearLayout2.addView(linearLayout3, new LinearLayout.LayoutParams(i2, -1));
+            loadFull(list.get(i4), imageView, i2, txt);
+            i4 = i5;
+            i3 = 1;
+        }
+        linearLayout.addView(horizontalScrollView, new LinearLayout.LayoutParams(-1, 0, 1.0f));
+        Button ghost = ghost("关闭");
+        ghost.setTextColor(Color.parseColor("#EEEAE0"));
+        ghost.setOnClickListener(new View.OnClickListener() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.21
+            @Override // android.view.View.OnClickListener
+            public final void onClick(View view) {
+                HygieneHistoryActivity.this.m11lambda$previewGallery$0$cnzuwehygieneHygieneHistoryActivity(view);
+            }
+        });
+        linearLayout.addView(ghost, new LinearLayout.LayoutParams(-1, dp(46)));
+        Dialog dialog = new Dialog(this, R.style.Theme_Black_NoTitleBar);
+        this.photoDialog = dialog;
+        dialog.setContentView(linearLayout);
+        this.photoDialog.show();
+        final int max = Math.max(0, i) * i2;
+        horizontalScrollView.post(new Runnable() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.22
+            @Override // java.lang.Runnable
+            public final void run() {
+                horizontalScrollView.scrollTo(max, 0);
+            }
+        });
+    }
+
+    void m11lambda$previewGallery$0$cnzuwehygieneHygieneHistoryActivity(View view) {
+        Dialog dialog = this.photoDialog;
+        if (dialog != null) {
+            dialog.dismiss();
+            this.photoDialog = null;
+        }
+    }
+
+    private void loadFull(final String str, final ImageView imageView, final int i, final TextView textView) {
+        this.io.execute(new Runnable() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.23
+            @Override // java.lang.Runnable
+            public final void run() {
+                HygieneHistoryActivity.this.m5lambda$loadFull$0$cnzuwehygieneHygieneHistoryActivity(str, i, imageView, textView);
+            }
+        });
+    }
+
+    void m5lambda$loadFull$0$cnzuwehygieneHygieneHistoryActivity(String str, int i, final ImageView imageView, final TextView textView) {
+        final Bitmap downloadBitmap = downloadBitmap(str, Math.max(480, i));
+        this.main.post(new Runnable() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.24
+            @Override // java.lang.Runnable
+            public final void run() {
+                HygieneHistoryActivity.lambda$loadFull$1(downloadBitmap, imageView, textView);
+            }
+        });
+    }
+
+    static void lambda$loadFull$1(Bitmap bitmap, ImageView imageView, TextView textView) {
+        try {
+            if (bitmap != null) {
+                imageView.setImageBitmap(bitmap);
+                textView.setVisibility(8);
+            } else {
+                textView.setText("这张照片加载失败");
+            }
+        } catch (Exception unused) {
+        }
+    }
+
+    private Bitmap downloadBitmap(String str, int i) {
+        try {
+            HttpURLConnection httpURLConnection = (HttpURLConnection) new URL(str).openConnection();
+            httpURLConnection.setConnectTimeout(15000);
+            httpURLConnection.setReadTimeout(30000);
+            httpURLConnection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) SmartCourseLite");
+            String cookie = CookieManager.getInstance().getCookie("https://ihome.zuwe.edu.cn/");
+            if (cookie != null && !cookie.isEmpty()) {
+                httpURLConnection.setRequestProperty("Cookie", cookie);
+            }
+            if (httpURLConnection.getResponseCode() != 200) {
+                return null;
+            }
+            InputStream inputStream = httpURLConnection.getInputStream();
+            ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+            byte[] bArr = new byte[8192];
+            while (true) {
+                int read = inputStream.read(bArr);
+                if (read == -1) {
+                    break;
+                }
+                byteArrayOutputStream.write(bArr, 0, read);
+            }
+            inputStream.close();
+            httpURLConnection.disconnect();
+            byte[] byteArray = byteArrayOutputStream.toByteArray();
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            int i2 = 1;
+            options.inJustDecodeBounds = true;
+            BitmapFactory.decodeByteArray(byteArray, 0, byteArray.length, options);
+            if (i > 0) {
+                while (true) {
+                    int i3 = i2 * 2;
+                    if (options.outWidth / i3 < i && options.outHeight / i3 < i) {
+                        break;
+                    }
+                    i2 = i3;
+                }
+            }
+            BitmapFactory.Options options2 = new BitmapFactory.Options();
+            options2.inSampleSize = i2;
+            return BitmapFactory.decodeByteArray(byteArray, 0, byteArray.length, options2);
+        } catch (Throwable unused) {
+            return null;
+        }
+    }
+
+    private void renderPager() {
+        if (this.totalPages <= 1) {
+            return;
+        }
+        LinearLayout linearLayout = new LinearLayout(this);
+        linearLayout.setGravity(16);
+        Button ghost = ghost("上一页");
+        ghost.setEnabled(this.pageNo > 1);
+        ghost.setOnClickListener(new View.OnClickListener() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.25
+            @Override // android.view.View.OnClickListener
+            public final void onClick(View view) {
+                HygieneHistoryActivity.this.m14lambda$renderPager$0$cnzuwehygieneHygieneHistoryActivity(view);
+            }
+        });
+        Button ghost2 = ghost("下一页");
+        ghost2.setEnabled(this.pageNo < this.totalPages);
+        ghost2.setOnClickListener(new View.OnClickListener() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.26
+            @Override // android.view.View.OnClickListener
+            public final void onClick(View view) {
+                HygieneHistoryActivity.this.m15lambda$renderPager$1$cnzuwehygieneHygieneHistoryActivity(view);
+            }
+        });
+        linearLayout.addView(ghost, new LinearLayout.LayoutParams(0, dp(40), 1.0f));
+        TextView txt = txt(this.pageNo + " / " + this.totalPages, 11, this.muted, false);
+        txt.setGravity(17);
+        linearLayout.addView(txt, new LinearLayout.LayoutParams(dp(72), -2));
+        linearLayout.addView(ghost2, new LinearLayout.LayoutParams(0, dp(40), 1.0f));
+        this.content.addView(linearLayout, top(10));
+    }
+
+    void m14lambda$renderPager$0$cnzuwehygieneHygieneHistoryActivity(View view) {
+        this.pageNo--;
+        loadHistory(false);
+    }
+
+    void m15lambda$renderPager$1$cnzuwehygieneHygieneHistoryActivity(View view) {
+        this.pageNo++;
+        loadHistory(false);
+    }
+
+    private <T> void run(final String str, final Work<T> work, final Done<T> done) {
+        if (this.busy) {
+            return;
+        }
+        this.busy = true;
+        this.io.execute(new Runnable() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.27
+            @Override // java.lang.Runnable
+            public final void run() {
+                HygieneHistoryActivity.this.m18lambda$run$0$cnzuwehygieneHygieneHistoryActivity(work, done, str);
+            }
+        });
+    }
+
+    void m18lambda$run$0$cnzuwehygieneHygieneHistoryActivity(Work work, final Done done, String str) {
+        final String message;
+        try {
+            final Object run = work.run();
+            this.main.post(new Runnable() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.28
+                @Override // java.lang.Runnable
+                public final void run() {
+                    HygieneHistoryActivity.this.m19lambda$run$1$cnzuwehygieneHygieneHistoryActivity(done, run);
+                }
+            });
+        } catch (Exception e) {
+            if (e.getMessage() == null) {
+                message = str + "失败";
+            } else {
+                message = e.getMessage();
+            }
+            this.main.post(new Runnable() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.29
+                @Override // java.lang.Runnable
+                public final void run() {
+                    HygieneHistoryActivity.this.m20lambda$run$2$cnzuwehygieneHygieneHistoryActivity(message);
+                }
+            });
+        }
+    }
+
+    void m19lambda$run$1$cnzuwehygieneHygieneHistoryActivity(Done done, Object obj) {
+        this.busy = false;
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        done.accept(obj);
+    }
+
+    void m20lambda$run$2$cnzuwehygieneHygieneHistoryActivity(String str) {
+        this.busy = false;
+        if (isAuthError(str)) {
+            this.session.clear();
+            showLogin("登录已过期，请重新登录");
+        } else {
+            if (isFinishing() || isDestroyed()) {
+                return;
+            }
+            toast("网络异常，稍后重试：" + str);
+        }
+    }
+
+    private void card(Card card) {
+        LinearLayout linearLayout = new LinearLayout(this);
+        linearLayout.setOrientation(1);
+        linearLayout.setPadding(dp(14), dp(13), dp(14), dp(13));
+        GradientDrawable gradientDrawable = new GradientDrawable();
+        gradientDrawable.setColor(this.cardBg);
+        gradientDrawable.setCornerRadius(dp(12));
+        gradientDrawable.setStroke(dp(1), this.line);
+        linearLayout.setBackground(gradientDrawable);
+        LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(-1, -2);
+        layoutParams.bottomMargin = dp(10);
+        this.content.addView(linearLayout, layoutParams);
+        card.build(linearLayout);
+    }
+
+    private TextView txt(String str, int i, int i2, boolean z) {
+        TextView textView = new TextView(this);
+        textView.setText(str);
+        textView.setTextSize(i);
+        textView.setTextColor(i2);
+        if (z) {
+            textView.setTypeface(Typeface.DEFAULT, 1);
+        }
+        return textView;
+    }
+
+    private void addText(LinearLayout linearLayout, String str, int i, int i2, boolean z, int i3) {
+        TextView txt = txt(str, i, i2, z);
+        if (i3 > 0) {
+            txt.setPadding(0, dp(i3), 0, 0);
+        }
+        linearLayout.addView(txt);
+    }
+
+    private Button ghost(String str) {
+        Button button = new Button(this);
+        button.setText(str);
+        button.setAllCaps(false);
+        button.setTextSize(12.0f);
+        button.setTextColor(this.muted);
+        button.setStateListAnimator(null);
+        GradientDrawable gradientDrawable = new GradientDrawable();
+        gradientDrawable.setColor(this.bgAlt);
+        gradientDrawable.setCornerRadius(dp(20));
+        gradientDrawable.setStroke(dp(1), this.line);
+        button.setBackground(gradientDrawable);
+        return button;
+    }
+
+    private Button primary(String str) {
+        Button ghost = ghost(str);
+        ghost.setTextColor(Color.parseColor("#161611"));
+        ghost.setTypeface(Typeface.DEFAULT, 1);
+        GradientDrawable gradientDrawable = new GradientDrawable();
+        gradientDrawable.setColor(this.green);
+        gradientDrawable.setCornerRadius(dp(20));
+        ghost.setBackground(gradientDrawable);
+        return ghost;
+    }
+
+    private void addButton(LinearLayout linearLayout, String str, boolean z, final Runnable runnable) {
+        Button primary = z ? primary(str) : ghost(str);
+        primary.setOnClickListener(new View.OnClickListener() { // from class: cn.zuwe.hygiene.HygieneHistoryActivity.30
+            @Override // android.view.View.OnClickListener
+            public final void onClick(View view) {
+                runnable.run();
+            }
+        });
+        LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(-1, dp(42));
+        layoutParams.topMargin = dp(8);
+        linearLayout.addView(primary, layoutParams);
     }
 
     private View hairline() {
-        View v = new View(this);
-        v.setBackgroundColor(line);
-        v.setLayoutParams(new LinearLayout.LayoutParams(-1, dp(1)));
-        return v;
+        View view = new View(this);
+        view.setBackgroundColor(this.line);
+        view.setLayoutParams(new LinearLayout.LayoutParams(-1, dp(1)));
+        return view;
     }
 
-    private LinearLayout.LayoutParams top(int dpValue) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.topMargin = dp(dpValue);
-        return lp;
+    private LinearLayout.LayoutParams top(int i) {
+        LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(-1, -2);
+        layoutParams.topMargin = dp(i);
+        return layoutParams;
     }
 
-    private String first(JSONObject o, String... keys) {
-        for (String k : keys) {
-            Object v = o.opt(k);
-            if (v != null && v != JSONObject.NULL) {
-                String s = String.valueOf(v);
-                if (!s.isEmpty() && !"null".equals(s)) return s;
+    private String first(JSONObject jSONObject, String... strArr) {
+        for (String str : strArr) {
+            Object opt = jSONObject.opt(str);
+            if (opt != null && opt != JSONObject.NULL) {
+                String valueOf = String.valueOf(opt);
+                if (!valueOf.isEmpty() && !"null".equals(valueOf)) {
+                    return valueOf;
+                }
             }
         }
         return "";
     }
 
-    private JSONArray array(JSONObject o, String... keys) {
-        for (String k : keys) { JSONArray a = o.optJSONArray(k); if (a != null) return a; }
+    private JSONArray array(JSONObject jSONObject, String... strArr) {
+        for (String str : strArr) {
+            JSONArray optJSONArray = jSONObject.optJSONArray(str);
+            if (optJSONArray != null) {
+                return optJSONArray;
+            }
+        }
         return null;
     }
 
-    private static String join(List<String> parts, String sep) {
+    private static String join(List<String> list, String str) {
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < parts.size(); i++) { if (i > 0) sb.append(sep); sb.append(parts.get(i)); }
+        for (int i = 0; i < list.size(); i++) {
+            if (i > 0) {
+                sb.append(str);
+            }
+            sb.append(list.get(i));
+        }
         return sb.toString();
     }
 
     private static String trim(double d) {
-        if (Math.abs(d - Math.rint(d)) < 0.001) return String.valueOf((long) Math.rint(d));
-        return String.valueOf(d);
+        return Math.abs(d - Math.rint(d)) < 0.001d ? String.valueOf((long) Math.rint(d)) : String.valueOf(d);
     }
 
-    private int scoreColor(String s) {
+    private int scoreColor(String str) {
+        double d;
         try {
-            double n = Double.parseDouble(s);
-            if (n >= 90) return green;
-            if (n >= 80) return Color.parseColor(dark ? "#AE7D30" : "#8A6322");
-        } catch (Exception ignored) {}
-        return red;
+            d = Double.parseDouble(str);
+        } catch (Exception unused) {
+            d = 0.0d;
+        }
+        if (d >= 90.0d) {
+            return this.green;
+        }
+        if (d >= 80.0d) {
+            return Color.parseColor(this.dark ? "#AE7D30" : "#8A6322");
+        }
+        return this.red;
     }
 
-    private int dp(int n) { return (int) (n * getResources().getDisplayMetrics().density + 0.5f); }
-
-    private int dp(float n) { return (int) (n * getResources().getDisplayMetrics().density + 0.5f); }
-    private void toast(String s) { Toast.makeText(this, s, Toast.LENGTH_LONG).show(); }
-
-    private void backToList() {
-        showingDetail = false;
-        if (lastPage != null) renderListPage(lastPage, true);
-        else loadHistory(false);
+    private int dp(int i) {
+        return (int) ((i * getResources().getDisplayMetrics().density) + 0.5f);
     }
 
-    @Override public void onBackPressed() {
-        if (showingDetail) { backToList(); return; }
-        super.onBackPressed();
+    private int dp(float f) {
+        return (int) ((f * getResources().getDisplayMetrics().density) + 0.5f);
     }
 
-    @Override protected void onDestroy() {
-        io.shutdownNow();
-        if (photoDialog != null) { photoDialog.dismiss(); photoDialog = null; }
+    private void toast(String str) {
+        Toast.makeText(this, str, 1).show();
+    }
+
+    public void backToList() {
+        this.showingDetail = false;
+        JSONObject jSONObject = this.lastPage;
+        if (jSONObject != null) {
+            renderListPage(jSONObject, true);
+        } else {
+            loadHistory(false);
+        }
+    }
+
+    @Override // android.app.Activity
+    public void onBackPressed() {
+        if (this.showingDetail) {
+            backToList();
+        } else {
+            super.onBackPressed();
+        }
+    }
+
+    @Override // android.app.Activity
+    protected void onDestroy() {
+        this.io.shutdownNow();
+        Dialog dialog = this.photoDialog;
+        if (dialog != null) {
+            dialog.dismiss();
+            this.photoDialog = null;
+        }
         super.onDestroy();
     }
 }

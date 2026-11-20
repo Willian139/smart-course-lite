@@ -16,13 +16,13 @@ public final class JwPreserve {
     public static void saveAndKeep(MainActivity m, LocalDate date, List<Course> fresh) {
         if (m == null || date == null) return;
         if (fresh == null) {
-            m.writeCache(date, fresh);
+            m.saveCache(date, fresh);
             return;
         }
         try {
             List<Course> old = JwUi.loadCacheCourses(m, date);
             if (old == null || old.isEmpty()) {
-                m.writeCache(date, fresh);
+                m.saveCache(date, fresh);
                 return;
             }
             List<Course> out = new ArrayList<Course>(fresh.size());
@@ -43,9 +43,9 @@ public final class JwPreserve {
                 }
                 out.add(rebuild(f, room, teacher));
             }
-            m.writeCache(date, out);
+            m.saveCache(date, out);
         } catch (Throwable t) {
-            m.writeCache(date, fresh);
+            m.saveCache(date, fresh);
         }
     }
 

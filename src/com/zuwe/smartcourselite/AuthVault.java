@@ -26,12 +26,12 @@ public final class AuthVault {
         KeyStore keyStore = KeyStore.getInstance("AndroidKeyStore");
         keyStore.load(null);
         Key key = keyStore.getKey(ALIAS, null);
-        if (key instanceof SecretKey) {
-            return (SecretKey) key;
+        if (!(key instanceof SecretKey)) {
+            KeyGenerator keyGenerator = KeyGenerator.getInstance("AES", "AndroidKeyStore");
+            keyGenerator.init(new KeyGenParameterSpec.Builder(ALIAS, 3).setBlockModes("GCM").setEncryptionPaddings("NoPadding").setRandomizedEncryptionRequired(true).build());
+            return keyGenerator.generateKey();
         }
-        KeyGenerator keyGenerator = KeyGenerator.getInstance("AES", "AndroidKeyStore");
-        keyGenerator.init(new KeyGenParameterSpec.Builder(ALIAS, 3).setBlockModes("GCM").setEncryptionPaddings("NoPadding").setRandomizedEncryptionRequired(true).build());
-        return keyGenerator.generateKey();
+        return (SecretKey) key;
     }
 
     public static void save(Context context, String str, String str2) throws Exception {

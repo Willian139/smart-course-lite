@@ -24,26 +24,34 @@ public final class Course {
         this.weekDay = jSONObject.optInt("weekDay", 0);
     }
 
-    /** 把「南浔校区博学楼博学北106」这类地点压缩成「博学北 106」这种具体教室。 */
     public String roomShort() {
-        String s = this.room == null ? "" : this.room.trim();
-        if (s.isEmpty()) return "";
-        int campus = s.indexOf("校区");
-        if (campus >= 0) {
-            String rest = s.substring(campus + 2).trim();
-            if (!rest.isEmpty()) s = rest;
+        String str = this.room;
+        String trim = str == null ? "" : str.trim();
+        if (trim.isEmpty()) {
+            return "";
         }
-        int building = s.indexOf('楼');
-        if (building > 0 && building < s.length() - 1) {
-            String rest = s.substring(building + 1).trim();
-            if (!rest.isEmpty()) s = rest;
+        int indexOf = trim.indexOf("校区");
+        if (indexOf >= 0) {
+            String trim2 = trim.substring(indexOf + 2).trim();
+            if (!trim2.isEmpty()) {
+                trim = trim2;
+            }
         }
-        s = s.replaceAll("^(\\D+?)(\\d+.*)$", "$1 $2").trim();
-        return s;
+        int indexOf2 = trim.indexOf(27004);
+        if (indexOf2 > 0 && indexOf2 < trim.length() - 1) {
+            String trim3 = trim.substring(indexOf2 + 1).trim();
+            if (!trim3.isEmpty()) {
+                trim = trim3;
+            }
+        }
+        return trim.replaceAll("^(\\D+?)(\\d+.*)$", "$1 $2").trim();
     }
 
     public String sections() {
-        return this.startSection == 0 ? "节次未提供" : this.startSection + "–" + this.endSection + " 节";
+        if (this.startSection == 0) {
+            return "节次未提供";
+        }
+        return this.startSection + "–" + this.endSection + " 节";
     }
 
     public String timeRange() {

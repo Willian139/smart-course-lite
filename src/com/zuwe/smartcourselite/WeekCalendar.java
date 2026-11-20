@@ -2,26 +2,21 @@ package com.zuwe.smartcourselite;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import org.json.JSONArray;
-import org.json.JSONObject;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.Map;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
-/**
- * 教学周历：以学校 /skl/teachweek 接口返回的真实数据为准。
- * 返回形如 {"week":9,"data":[{"week":1,"teachWeekDetail":[{"date":"2026-09-14",...}]}, ...]}，
- * week 为服务端认定的当前周次，data 为每周的日期明细。
- */
+/* loaded from: classes.dex */
 public final class WeekCalendar {
-    private static final String PREFS = "smartcourse_prefs";
-    private static final String KEY_MAP = "week_map";      // 每行 “2026-09-14=1”
-    private static final String KEY_ANCHOR = "week_anchor"; // 第 1 周第一天
+    private static final String KEY_ANCHOR = "week_anchor";
+    private static final String KEY_MAP = "week_map";
     private static final String KEY_TS = "week_map_ts";
-    private static final long TTL_MS = 6 * 60 * 60 * 1000L;
-
-    private static final Map<String, Integer> MAP = new HashMap<String, Integer>();
+    private static final Map<String, Integer> MAP = new HashMap();
+    private static final String PREFS = "smartcourse_prefs";
+    private static final long TTL_MS = 21600000;
     private static LocalDate anchor;
     private static long fetchedAt;
     private static boolean loaded;
@@ -30,144 +25,159 @@ public final class WeekCalendar {
     }
 
     public static synchronized void load(Context context) {
-        if (loaded) {
-            return;
-        }
-        loaded = true;
-        SharedPreferences p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        fetchedAt = p.getLong(KEY_TS, 0L);
-        String a = p.getString(KEY_ANCHOR, "");
-        if (a != null && !a.isEmpty()) {
-            try {
-                anchor = LocalDate.parse(a);
-            } catch (Exception ignored) {
+        synchronized (WeekCalendar.class) {
+            synchronized (WeekCalendar.class) {
+                if (loaded) {
+                    return;
+                }
+                loaded = true;
+                SharedPreferences sharedPreferences = context.getSharedPreferences(PREFS, 0);
+                fetchedAt = sharedPreferences.getLong(KEY_TS, 0L);
+                String string = sharedPreferences.getString(KEY_ANCHOR, "");
+                if (string != null && !string.isEmpty()) {
+                    try {
+                        anchor = LocalDate.parse(string);
+                    } catch (Exception unused) {
+                    }
+                }
+                fill(sharedPreferences.getString(KEY_MAP, ""));
             }
         }
-        fill(p.getString(KEY_MAP, ""));
     }
 
-    private static void fill(String raw) {
+    private static void fill(String str) {
         MAP.clear();
-        if (raw == null || raw.isEmpty()) {
+        if (str == null || str.isEmpty()) {
             return;
         }
-        for (String line : raw.split("\n")) {
-            int i = line.indexOf('=');
-            if (i <= 0) {
-                continue;
-            }
-            try {
-                MAP.put(line.substring(0, i), Integer.valueOf(Integer.parseInt(line.substring(i + 1).trim())));
-            } catch (Exception ignored) {
+        for (String str2 : str.split("\n")) {
+            int indexOf = str2.indexOf(61);
+            if (indexOf > 0) {
+                try {
+                    MAP.put(str2.substring(0, indexOf), Integer.valueOf(Integer.parseInt(str2.substring(indexOf + 1).trim())));
+                } catch (Exception unused) {
+                }
             }
         }
     }
 
     public static synchronized boolean isStale(Context context) {
-        load(context);
-        return fetchedAt == 0L || MAP.isEmpty() || System.currentTimeMillis() - fetchedAt > TTL_MS;
+        boolean z;
+        synchronized (WeekCalendar.class) {
+            synchronized (WeekCalendar.class) {
+                load(context);
+                z = true;
+                if (fetchedAt != 0 && !MAP.isEmpty() && System.currentTimeMillis() - fetchedAt <= TTL_MS) {
+                    z = false;
+                }
+            }
+            return z;
+        }
     }
 
     public static synchronized LocalDate anchor(Context context) {
-        load(context);
-        return anchor;
+        LocalDate localDate;
+        synchronized (WeekCalendar.class) {
+            synchronized (WeekCalendar.class) {
+                load(context);
+                localDate = anchor;
+            }
+            return localDate;
+        }
     }
 
-    /** 真实周次：先查日期表，超出表范围时按“同星期”的已知周次外推。 */
-    public static synchronized Integer weekFor(Context context, LocalDate date) {
-        load(context);
-        if (date == null) {
-            return null;
-        }
-        Integer exact = MAP.get(date.toString());
-        if (exact != null) {
-            return exact;
-        }
-        if (MAP.isEmpty()) {
-            return null;
-        }
-        DayOfWeek want = date.getDayOfWeek();
-        LocalDate best = null;
-        int bestWeek = 0;
-        long bestDiff = Long.MAX_VALUE;
-        for (Map.Entry<String, Integer> entry : MAP.entrySet()) {
-            LocalDate d;
-            try {
-                d = LocalDate.parse(entry.getKey());
-            } catch (Exception e) {
-                continue;
+    public static synchronized Integer weekFor(Context context, LocalDate localDate) {
+        synchronized (WeekCalendar.class) {
+            synchronized (WeekCalendar.class) {
+                load(context);
+                if (localDate == null) {
+                    return null;
+                }
+                Map<String, Integer> map = MAP;
+                Integer num = map.get(localDate.toString());
+                if (num != null) {
+                    return num;
+                }
+                if (map.isEmpty()) {
+                    return null;
+                }
+                DayOfWeek dayOfWeek = localDate.getDayOfWeek();
+                int i = 0;
+                long j = Long.MAX_VALUE;
+                LocalDate localDate2 = null;
+                for (Map.Entry<String, Integer> entry : map.entrySet()) {
+                    try {
+                        LocalDate parse = LocalDate.parse(entry.getKey());
+                        if (parse.getDayOfWeek() == dayOfWeek) {
+                            long abs = Math.abs(localDate.toEpochDay() - parse.toEpochDay());
+                            if (abs < j) {
+                                i = entry.getValue().intValue();
+                                localDate2 = parse;
+                                j = abs;
+                            }
+                        }
+                    } catch (Exception unused) {
+                    }
+                }
+                if (localDate2 == null) {
+                    return null;
+                }
+                return Integer.valueOf((int) (i + ((localDate.toEpochDay() - localDate2.toEpochDay()) / 7)));
             }
-            if (d.getDayOfWeek() != want) {
-                continue;
-            }
-            long diff = Math.abs(date.toEpochDay() - d.toEpochDay());
-            if (diff < bestDiff) {
-                bestDiff = diff;
-                best = d;
-                bestWeek = entry.getValue().intValue();
-            }
         }
-        if (best == null) {
-            return null;
-        }
-        long weeks = (date.toEpochDay() - best.toEpochDay()) / 7;
-        return Integer.valueOf((int) (bestWeek + weeks));
     }
 
-    /** 解析接口返回并落盘；成功返回 true。 */
-    public static synchronized boolean save(Context context, JSONObject resp) {
-        if (resp == null) {
-            return false;
-        }
-        JSONArray weeks = resp.optJSONArray("data");
-        if (weeks == null) {
-            return false;
-        }
-        StringBuilder sb = new StringBuilder();
-        LocalDate first = null;
-        int count = 0;
-        for (int i = 0; i < weeks.length(); i++) {
-            JSONObject w = weeks.optJSONObject(i);
-            if (w == null) {
-                continue;
-            }
-            int no = w.optInt("week", 0);
-            JSONArray days = w.optJSONArray("teachWeekDetail");
-            if (no <= 0 || days == null) {
-                continue;
-            }
-            for (int j = 0; j < days.length(); j++) {
-                JSONObject day = days.optJSONObject(j);
-                String ds = day == null ? "" : day.optString("date", "");
-                if (ds.length() < 10) {
-                    continue;
+    public static synchronized boolean save(Context context, JSONObject jSONObject) {
+        synchronized (WeekCalendar.class) {
+            synchronized (WeekCalendar.class) {
+                if (jSONObject == null) {
+                    return false;
                 }
-                ds = ds.substring(0, 10);
-                LocalDate ld;
-                try {
-                    ld = LocalDate.parse(ds);
-                } catch (Exception e) {
-                    continue;
+                JSONArray optJSONArray = jSONObject.optJSONArray("data");
+                if (optJSONArray == null) {
+                    return false;
                 }
-                sb.append(ds).append('=').append(no).append('\n');
-                if (first == null || ld.isBefore(first)) {
-                    first = ld;
+                StringBuilder sb = new StringBuilder();
+                LocalDate localDate = null;
+                int i = 0;
+                for (int i2 = 0; i2 < optJSONArray.length(); i2++) {
+                    JSONObject optJSONObject = optJSONArray.optJSONObject(i2);
+                    if (optJSONObject != null) {
+                        int optInt = optJSONObject.optInt("week", 0);
+                        JSONArray optJSONArray2 = optJSONObject.optJSONArray("teachWeekDetail");
+                        if (optInt > 0 && optJSONArray2 != null) {
+                            for (int i3 = 0; i3 < optJSONArray2.length(); i3++) {
+                                JSONObject optJSONObject2 = optJSONArray2.optJSONObject(i3);
+                                String optString = optJSONObject2 == null ? "" : optJSONObject2.optString("date", "");
+                                if (optString.length() >= 10) {
+                                    String substring = optString.substring(0, 10);
+                                    try {
+                                        LocalDate parse = LocalDate.parse(substring);
+                                        sb.append(substring);
+                                        sb.append('=');
+                                        sb.append(optInt);
+                                        sb.append('\n');
+                                        if (localDate == null || parse.isBefore(localDate)) {
+                                            localDate = parse;
+                                        }
+                                        i++;
+                                    } catch (Exception unused) {
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-                count++;
+                if (i == 0) {
+                    return false;
+                }
+                long currentTimeMillis = System.currentTimeMillis();
+                context.getSharedPreferences(PREFS, 0).edit().putString(KEY_MAP, sb.toString()).putString(KEY_ANCHOR, localDate.toString()).putLong(KEY_TS, currentTimeMillis).apply();
+                fill(sb.toString());
+                anchor = localDate;
+                fetchedAt = currentTimeMillis;
+                return true;
             }
         }
-        if (count == 0) {
-            return false;
-        }
-        long now = System.currentTimeMillis();
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                .putString(KEY_MAP, sb.toString())
-                .putString(KEY_ANCHOR, first.toString())
-                .putLong(KEY_TS, now)
-                .apply();
-        fill(sb.toString());
-        anchor = first;
-        fetchedAt = now;
-        return true;
     }
 }

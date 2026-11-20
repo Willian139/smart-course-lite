@@ -2,651 +2,848 @@ package com.zuwe.smartcourselite;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.content.SharedPreferences;
+import android.content.DialogInterface;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewTreeObserver;
-import android.view.Window;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-
-import org.json.JSONArray;
-import org.json.JSONObject;
-
+import com.zuwe.smartcourselite.AuthManager;
+import com.zuwe.smartcourselite.SvgIcon;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
-/** 周次总览：当前选择那一周的全部课程，卡片式课程表。 */
+/* loaded from: classes.dex */
 public final class WeekOverviewActivity extends Activity {
-    private static final String PREFS = "smartcourse_prefs";
-    private static final String KEY_DARK = "theme_dark";
     private static final String DAY_CACHE = "cache_";
     private static final String DAY_TS = "cache_ts_";
-    private static final long STALE_MS = 2L * 60L * 60L * 1000L;
+    private static final String KEY_DARK = "theme_dark";
+    private static final String PREFS = "smartcourse_prefs";
     private static final int SECTIONS = 12;
+    private static final long STALE_MS = 7200000;
+    private int bg;
+    private int bgAlt;
+    private int blue;
+    private LinearLayout card;
+    private int cardBg;
+    private int colW;
+    private int faint;
+    private int finished;
+    private int gap;
+    private int green;
+    private int ink;
+    private int labelW;
+    private int line;
+    private int lunchGap;
+    private int muted;
+    private int onGreen;
+    private int red;
+    private int rowH;
+    private TextView status;
+    private TextView sub;
+    private long swipeDownAt;
+    private float swipeDownX;
+    private float swipeDownY;
+    private TextView title;
+    private int total;
     private static final DateTimeFormatter FMT_MD = DateTimeFormatter.ofPattern("M月d日", Locale.CHINA);
     private static final String[] WEEK_NAMES = {"周一", "周二", "周三", "周四", "周五", "周六", "周日"};
-
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newFixedThreadPool(7);
-
-    private int bg, bgAlt, cardBg, line, ink, muted, faint, green, blue, red, onGreen;
     private boolean dark = true;
     private LocalDate monday = WeekUtil.monday(LocalDate.now());
     private int weekNo = 1;
-
-    private TextView title, sub, status;
     private TextView[] dayName = new TextView[7];
     private TextView[] dayDate = new TextView[7];
     private LinearLayout[] cols = new LinearLayout[7];
-    private LinearLayout card;
-    private int labelW, colW, rowH, gap, lunchGap;
     private int[] counts = new int[7];
+    private String auth = "";
+    private String cookie = "";
 
-    private String auth = "", cookie = "";
-    private int finished, total;
+    private Button arrowBtn(String str) {
+        return null;
+    }
 
-    @Override protected void onCreate(Bundle b) {
+    @Override // android.app.Activity
+    protected void onCreate(Bundle bundle) {
         setTheme(android.R.style.Theme_Material_NoActionBar);
-        super.onCreate(b);
-        requestWindowFeature(Window.FEATURE_NO_TITLE);
-        String iso = getIntent().getStringExtra("monday");
-        if (iso != null && !iso.isEmpty()) {
-            try { this.monday = LocalDate.parse(iso); } catch (Exception ignored) {}
+        super.onCreate(bundle);
+        requestWindowFeature(1);
+        String stringExtra = getIntent().getStringExtra("monday");
+        if (stringExtra != null && !stringExtra.isEmpty()) {
+            try {
+                this.monday = LocalDate.parse(stringExtra);
+            } catch (Exception unused) {
+            }
         }
-        this.weekNo = getIntent().getIntExtra("week", WeekUtil.weekNumber(WeekUtil.defaultAnchor(LocalDate.now()), monday));
+        this.weekNo = getIntent().getIntExtra("week", WeekUtil.weekNumber(WeekUtil.defaultAnchor(LocalDate.now()), this.monday));
         this.dark = getSharedPreferences(PREFS, 0).getBoolean(KEY_DARK, true);
         applyPalette();
         try {
-            AuthManager.Credentials c = AuthManager.load(this);
-            if (c != null) { this.auth = c.authorizationJwt; this.cookie = c.sklTokenJwt; }
-        } catch (Exception ignored) {}
+            AuthManager.Credentials load = AuthManager.load(this);
+            if (load != null) {
+                this.auth = load.authorizationJwt;
+                this.cookie = load.sklTokenJwt;
+            }
+        } catch (Exception unused2) {
+        }
         build();
         load();
     }
 
-    @Override protected void onDestroy() {
+    @Override // android.app.Activity
+    protected void onDestroy() {
         super.onDestroy();
-        io.shutdownNow();
+        this.io.shutdownNow();
     }
 
-    /** 圆形图标按钮：iOS 风格纯图标、无文字。 */
-    private FrameLayout roundIconChip(String path, int sizeDp) {
-        FrameLayout chip = new FrameLayout(this);
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(bgAlt);
-        d.setCornerRadius(dp(sizeDp / 2f));
-        chip.setBackground(d);
-        SvgIcon.IconView icon = SvgIcon.view(this, path, ink, sizeDp - 12);
-        chip.addView(icon, new FrameLayout.LayoutParams(dp(sizeDp - 12), dp(sizeDp - 12), Gravity.CENTER));
-        chip.setClickable(true);
-        UiPolish.pressable(chip);
-        return chip;
+    private FrameLayout roundIconChip(String str, int i) {
+        FrameLayout frameLayout = new FrameLayout(this);
+        GradientDrawable gradientDrawable = new GradientDrawable();
+        gradientDrawable.setColor(this.bgAlt);
+        gradientDrawable.setCornerRadius(dp(i / 2.0f));
+        frameLayout.setBackground(gradientDrawable);
+        int i2 = i - 12;
+        SvgIcon.IconView view = SvgIcon.view(this, str, this.ink, i2);
+        float f = i2;
+        frameLayout.addView(view, new FrameLayout.LayoutParams(dp(f), dp(f), 17));
+        frameLayout.setClickable(true);
+        UiPolish.pressable(frameLayout);
+        return frameLayout;
     }
-
-    // ------------------------------------------------------------ 调色板
 
     private void applyPalette() {
-        if (dark) {
-            bg = Color.parseColor("#131312"); bgAlt = Color.parseColor("#1B1B19");
-            cardBg = Color.parseColor("#262622"); line = Color.parseColor("#3A3A35");
-            ink = Color.parseColor("#EEEAE0"); muted = Color.parseColor("#A5A198");
-            faint = Color.parseColor("#706E67"); green = Color.parseColor("#89997A");
-            blue = Color.parseColor("#829AAA"); red = Color.parseColor("#B1847B");
-            onGreen = Color.parseColor("#161611");
-        } else {
-            bg = Color.parseColor("#EFEDE6"); bgAlt = Color.parseColor("#E9E6DD");
-            cardBg = Color.parseColor("#FBFAF6"); line = Color.parseColor("#DAD6CB");
-            ink = Color.parseColor("#191916"); muted = Color.parseColor("#77746B");
-            faint = Color.parseColor("#AAA79D"); green = Color.parseColor("#66735D");
-            blue = Color.parseColor("#657B88"); red = Color.parseColor("#936F68");
-            onGreen = Color.parseColor("#FFFFFF");
+        if (this.dark) {
+            this.bg = Color.parseColor("#181A16");
+            this.bgAlt = Color.parseColor("#252820");
+            this.cardBg = Color.parseColor("#20221D");
+            this.line = Color.parseColor("#34382F");
+            this.ink = Color.parseColor("#ECEDE6");
+            this.muted = Color.parseColor("#A3A69B");
+            this.faint = Color.parseColor("#7A7E72");
+            this.green = Color.parseColor("#95A48C");
+            this.blue = Color.parseColor("#9DB8CC");
+            this.red = Color.parseColor("#CD8B84");
+            this.onGreen = Color.parseColor("#1A1C17");
+            return;
         }
+        this.bg = Color.parseColor("#F4F3EE");
+        this.bgAlt = Color.parseColor("#EAE9E1");
+        this.cardBg = Color.parseColor("#FFFFFF");
+        this.line = Color.parseColor("#E4E2D9");
+        this.ink = Color.parseColor("#282A25");
+        this.muted = Color.parseColor("#85877F");
+        this.faint = Color.parseColor("#ADAEA6");
+        this.green = Color.parseColor("#6F7C69");
+        this.blue = Color.parseColor("#91AEC7");
+        this.red = Color.parseColor("#BA716B");
+        this.onGreen = Color.parseColor("#FFFFFF");
     }
 
-    // ------------------------------------------------------------ 布局
-
     private void build() {
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(bg);
-
-        LinearLayout bar = new LinearLayout(this);
-        bar.setGravity(16);
-        bar.setPadding(dp(16), dp(10), dp(16), 0);
-
-        // iOS 式的纯文字返回箭头：只有字形，没有底色和阴影
-        TextView back = txt("\u2039", 26, muted, false);
-        back.setGravity(Gravity.CENTER);
-        back.setContentDescription("返回");
-        back.setClickable(true);
-        back.setOnClickListener(v -> finish());
-        UiPolish.pressable(back);
-        bar.addView(back, new LinearLayout.LayoutParams(dp(34f), dp(34f)));
-
-        LinearLayout right = new LinearLayout(this);
-        right.setOrientation(LinearLayout.VERTICAL);
-        right.setGravity(Gravity.RIGHT);
-
-        LinearLayout nav = new LinearLayout(this);
-        nav.setOrientation(LinearLayout.HORIZONTAL);
-        nav.setGravity(Gravity.CENTER_VERTICAL);
-        TextView prev = txt("\u2039", 20, faint, false);
-        prev.setGravity(Gravity.CENTER);
-        prev.setClickable(true);
-        prev.setOnClickListener(v -> shiftWeek(-1));
-        UiPolish.pressable(prev);
-        nav.addView(prev, new LinearLayout.LayoutParams(dp(22f), dp(34f)));
-        this.title = txt("第 " + weekNo + " 周", 26, ink, true);
-        this.title.setTypeface(Typeface.create("serif", Typeface.BOLD));
-        this.title.setGravity(Gravity.CENTER);
+        float f;
+        LinearLayout linearLayout = new LinearLayout(this);
+        linearLayout.setOrientation(1);
+        linearLayout.setBackgroundColor(this.bg);
+        LinearLayout linearLayout2 = new LinearLayout(this);
+        linearLayout2.setGravity(16);
+        linearLayout2.setPadding(dp(16.0f), dp(10.0f), dp(16.0f), 0);
+        TextView txt = txt("‹", 26.0f, this.muted, false);
+        txt.setGravity(17);
+        txt.setContentDescription("返回");
+        txt.setClickable(true);
+        txt.setOnClickListener(new View.OnClickListener() { // from class: com.zuwe.smartcourselite.WeekOverviewActivity.1
+            @Override // android.view.View.OnClickListener
+            public final void onClick(View view) {
+                WeekOverviewActivity.this.m25lambda$build$0$comzuwesmartcourseliteWeekOverviewActivity(view);
+            }
+        });
+        UiPolish.pressable(txt);
+        linearLayout2.addView(txt, new LinearLayout.LayoutParams(dp(34.0f), dp(34.0f)));
+        LinearLayout linearLayout3 = new LinearLayout(this);
+        linearLayout3.setOrientation(1);
+        linearLayout3.setGravity(5);
+        LinearLayout linearLayout4 = new LinearLayout(this);
+        linearLayout4.setOrientation(0);
+        linearLayout4.setGravity(16);
+        TextView txt2 = txt("‹", 20.0f, this.faint, false);
+        txt2.setGravity(17);
+        txt2.setClickable(true);
+        txt2.setOnClickListener(new View.OnClickListener() { // from class: com.zuwe.smartcourselite.WeekOverviewActivity.2
+            @Override // android.view.View.OnClickListener
+            public final void onClick(View view) {
+                WeekOverviewActivity.this.m26lambda$build$1$comzuwesmartcourseliteWeekOverviewActivity(view);
+            }
+        });
+        UiPolish.pressable(txt2);
+        linearLayout4.addView(txt2, new LinearLayout.LayoutParams(dp(22.0f), dp(34.0f)));
+        TextView txt3 = txt("第 " + this.weekNo + " 周", 26.0f, this.ink, true);
+        this.title = txt3;
+        txt3.setTypeface(Typeface.create("serif", 1));
+        this.title.setGravity(17);
         this.title.setIncludeFontPadding(false);
-        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(-2, -2);
-        titleLp.leftMargin = dp(6f);
-        titleLp.rightMargin = dp(6f);
-        nav.addView(this.title, titleLp);
-        TextView next = txt("\u203a", 20, faint, false);
-        next.setGravity(Gravity.CENTER);
-        next.setClickable(true);
-        next.setOnClickListener(v -> shiftWeek(1));
-        UiPolish.pressable(next);
-        nav.addView(next, new LinearLayout.LayoutParams(dp(22f), dp(34f)));
-        right.addView(nav, new LinearLayout.LayoutParams(-2, -2));
-
-        this.sub = txt("", 10, muted, false);
-        this.sub.setGravity(Gravity.RIGHT);
-        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(-2, -2);
-        subLp.topMargin = dp(1f);
-        subLp.rightMargin = dp(26f);
-        right.addView(this.sub, subLp);
-
-        LinearLayout.LayoutParams rightLp = new LinearLayout.LayoutParams(0, -2, 1f);
-        bar.addView(right, rightLp);
-        root.addView(bar);
-
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        LinearLayout padding = new LinearLayout(this);
-        padding.setOrientation(LinearLayout.VERTICAL);
-        padding.setPadding(dp(12), dp(14), dp(12), dp(20));
-        scroll.addView(padding, new LinearLayout.LayoutParams(-1, -1));
-
-        this.card = new LinearLayout(this);
-        this.card.setOrientation(LinearLayout.VERTICAL);
-        UiPolish.glass(this.card, cardBg, line, 22f);
-        this.card.setPadding(dp(12), dp(14), dp(12), dp(12));
+        LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(-2, -2);
+        layoutParams.leftMargin = dp(6.0f);
+        layoutParams.rightMargin = dp(6.0f);
+        linearLayout4.addView(this.title, layoutParams);
+        TextView txt4 = txt("›", 20.0f, this.faint, false);
+        txt4.setGravity(17);
+        txt4.setClickable(true);
+        txt4.setOnClickListener(new View.OnClickListener() { // from class: com.zuwe.smartcourselite.WeekOverviewActivity.3
+            @Override // android.view.View.OnClickListener
+            public final void onClick(View view) {
+                WeekOverviewActivity.this.m27lambda$build$2$comzuwesmartcourseliteWeekOverviewActivity(view);
+            }
+        });
+        UiPolish.pressable(txt4);
+        linearLayout4.addView(txt4, new LinearLayout.LayoutParams(dp(22.0f), dp(34.0f)));
+        linearLayout3.addView(linearLayout4, new LinearLayout.LayoutParams(-2, -2));
+        TextView txt5 = txt("", 10.0f, this.muted, false);
+        this.sub = txt5;
+        txt5.setGravity(5);
+        LinearLayout.LayoutParams layoutParams2 = new LinearLayout.LayoutParams(-2, -2);
+        float f2 = 1.0f;
+        layoutParams2.topMargin = dp(1.0f);
+        layoutParams2.rightMargin = dp(26.0f);
+        linearLayout3.addView(this.sub, layoutParams2);
+        linearLayout2.addView(linearLayout3, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        linearLayout.addView(linearLayout2);
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.setFillViewport(true);
+        LinearLayout linearLayout5 = new LinearLayout(this);
+        linearLayout5.setOrientation(1);
+        linearLayout5.setPadding(dp(12.0f), dp(14.0f), dp(12.0f), dp(20.0f));
+        int i = -1;
+        scrollView.addView(linearLayout5, new LinearLayout.LayoutParams(-1, -1));
+        LinearLayout linearLayout6 = new LinearLayout(this);
+        this.card = linearLayout6;
+        linearLayout6.setOrientation(1);
+        UiPolish.glass(this.card, this.cardBg, this.line, 22.0f);
+        this.card.setPadding(dp(12.0f), dp(14.0f), dp(12.0f), dp(12.0f));
         this.card.setClipChildren(false);
         this.card.setClipToOutline(false);
-        padding.addView(this.card, new LinearLayout.LayoutParams(-1, -2));
-
-        LinearLayout cardHead = new LinearLayout(this);
-        cardHead.setGravity(16);
-        TextView label = txt("本周课程", 12, ink, true);
-        cardHead.addView(label);
-        this.status = txt("正在加载…", 10, faint, false);
-        this.status.setGravity(Gravity.RIGHT);
-        cardHead.addView(this.status, new LinearLayout.LayoutParams(0, -2, 1f));
-        this.card.addView(cardHead);
-
-        int screenW = getResources().getDisplayMetrics().widthPixels;
-        int cardInner = screenW - dp(24) - dp(24);
-        this.gap = dp(2f);
-        this.labelW = dp(22f);
-        this.colW = Math.max(dp(38f), (cardInner - labelW - gap * 7) / 7);
-        this.rowH = dp(46f);
-        this.lunchGap = dp(11f);
-
-        LinearLayout headRow = new LinearLayout(this);
-        headRow.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams headLp = new LinearLayout.LayoutParams(-2, -2);
-        headLp.topMargin = dp(10f);
-        this.card.addView(headRow, headLp);
-        headRow.addView(new View(this), new LinearLayout.LayoutParams(labelW, 1));
-        for (int i = 0; i < 7; i++) {
-            LinearLayout cell = new LinearLayout(this);
-            cell.setOrientation(LinearLayout.VERTICAL);
-            cell.setGravity(17);
-            this.dayName[i] = txt(WEEK_NAMES[i], 9, muted, false);
-            this.dayDate[i] = txt("", 12, ink, true);
-            cell.addView(this.dayName[i]);
-            cell.addView(this.dayDate[i]);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(colW, -2);
-            lp.leftMargin = gap;
-            headRow.addView(cell, lp);
+        linearLayout5.addView(this.card, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout linearLayout7 = new LinearLayout(this);
+        linearLayout7.setGravity(16);
+        linearLayout7.addView(txt("本周课程", 12.0f, this.ink, true));
+        TextView txt6 = txt("正在加载…", 10.0f, this.faint, false);
+        this.status = txt6;
+        txt6.setGravity(5);
+        linearLayout7.addView(this.status, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        this.card.addView(linearLayout7);
+        int dp = (getResources().getDisplayMetrics().widthPixels - dp(24.0f)) - dp(24.0f);
+        this.gap = dp(2.0f);
+        this.labelW = dp(22.0f);
+        this.colW = Math.max(dp(38.0f), ((dp - this.labelW) - (this.gap * 7)) / 7);
+        this.rowH = dp(46.0f);
+        this.lunchGap = dp(11.0f);
+        LinearLayout linearLayout8 = new LinearLayout(this);
+        linearLayout8.setOrientation(0);
+        LinearLayout.LayoutParams layoutParams3 = new LinearLayout.LayoutParams(-2, -2);
+        layoutParams3.topMargin = dp(10.0f);
+        this.card.addView(linearLayout8, layoutParams3);
+        linearLayout8.addView(new View(this), new LinearLayout.LayoutParams(this.labelW, 1));
+        int i2 = 0;
+        while (true) {
+            f = 9.0f;
+            if (i2 >= 7) {
+                break;
+            }
+            LinearLayout linearLayout9 = new LinearLayout(this);
+            linearLayout9.setOrientation(1);
+            linearLayout9.setGravity(17);
+            this.dayName[i2] = txt(WEEK_NAMES[i2], 9.0f, this.muted, false);
+            this.dayDate[i2] = txt("", 12.0f, this.ink, true);
+            linearLayout9.addView(this.dayName[i2]);
+            linearLayout9.addView(this.dayDate[i2]);
+            LinearLayout.LayoutParams layoutParams4 = new LinearLayout.LayoutParams(this.colW, -2);
+            layoutParams4.leftMargin = this.gap;
+            linearLayout8.addView(linearLayout9, layoutParams4);
+            i2++;
+            i = -1;
+            f2 = 1.0f;
         }
-
-        View hair = new View(this);
-        hair.setBackgroundColor(line);
-        LinearLayout.LayoutParams hairLp = new LinearLayout.LayoutParams(-1, dp(1f));
-        hairLp.topMargin = dp(10f);
-        hairLp.bottomMargin = dp(8f);
-        this.card.addView(hair, hairLp);
-
-        LinearLayout gridRow = new LinearLayout(this);
-        gridRow.setOrientation(LinearLayout.HORIZONTAL);
-        gridRow.setClipChildren(false);
-        this.card.addView(gridRow, new LinearLayout.LayoutParams(-2, -2));
-
-        LinearLayout sectionCol = new LinearLayout(this);
-        sectionCol.setOrientation(LinearLayout.VERTICAL);
-        gridRow.addView(sectionCol, new LinearLayout.LayoutParams(labelW, -2));
-        for (int s = 1; s <= SECTIONS; s++) {
-            TextView cell = txt(String.valueOf(s), 9, faint, false);
-            cell.setGravity(17);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, rowH);
-            lp.bottomMargin = gap + (s == 5 ? lunchGap : 0);
-            sectionCol.addView(cell, lp);
+        View view = new View(this);
+        view.setBackgroundColor(this.line);
+        LinearLayout.LayoutParams layoutParams5 = new LinearLayout.LayoutParams(i, dp(f2));
+        layoutParams5.topMargin = dp(10.0f);
+        layoutParams5.bottomMargin = dp(8.0f);
+        this.card.addView(view, layoutParams5);
+        LinearLayout linearLayout10 = new LinearLayout(this);
+        linearLayout10.setOrientation(0);
+        linearLayout10.setClipChildren(false);
+        this.card.addView(linearLayout10, new LinearLayout.LayoutParams(-2, -2));
+        LinearLayout linearLayout11 = new LinearLayout(this);
+        linearLayout11.setOrientation(1);
+        linearLayout10.addView(linearLayout11, new LinearLayout.LayoutParams(this.labelW, -2));
+        int i3 = 1;
+        while (i3 <= SECTIONS) {
+            TextView txt7 = txt(String.valueOf(i3), f, this.faint, false);
+            txt7.setGravity(17);
+            LinearLayout.LayoutParams layoutParams6 = new LinearLayout.LayoutParams(i, this.rowH);
+            layoutParams6.bottomMargin = this.gap + (i3 == 5 ? this.lunchGap : 0);
+            linearLayout11.addView(txt7, layoutParams6);
+            i3++;
+            f = 9.0f;
         }
-        for (int i = 0; i < 7; i++) {
-            LinearLayout col = new LinearLayout(this);
-            col.setOrientation(LinearLayout.VERTICAL);
-            col.setClipChildren(false);
-            this.cols[i] = col;
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(colW, -2);
-            lp.leftMargin = gap;
-            gridRow.addView(col, lp);
+        for (int i4 = 0; i4 < 7; i4++) {
+            LinearLayout linearLayout12 = new LinearLayout(this);
+            linearLayout12.setOrientation(1);
+            linearLayout12.setClipChildren(false);
+            this.cols[i4] = linearLayout12;
+            LinearLayout.LayoutParams layoutParams7 = new LinearLayout.LayoutParams(this.colW, -2);
+            layoutParams7.leftMargin = this.gap;
+            linearLayout10.addView(linearLayout12, layoutParams7);
         }
-
-        TextView hint = txt("点课程查看详情　·　白天课程按节次自动跨行", 10, faint, false);
-        hint.setGravity(17);
-        LinearLayout.LayoutParams hintLp = new LinearLayout.LayoutParams(-1, -2);
-        hintLp.topMargin = dp(12f);
-        this.card.addView(hint, hintLp);
-
-        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1f));
-        setContentView(root);
-        PageMotion.installBackdrop(this, bg);
-        PageMotion.fromRight(root, 620L);
-        UiPolish.staggerGroup(headRow);
-
-        this.card.setAlpha(0f);
-        this.card.setTranslationY(dp(14f));
-        this.card.animate().alpha(1f).translationY(0f).setDuration(320).start();
+        TextView txt8 = txt("点课程查看详情\u3000·\u3000白天课程按节次自动跨行", 10.0f, this.faint, false);
+        txt8.setGravity(17);
+        LinearLayout.LayoutParams layoutParams8 = new LinearLayout.LayoutParams(i, -2);
+        layoutParams8.topMargin = dp(12.0f);
+        this.card.addView(txt8, layoutParams8);
+        linearLayout.addView(scrollView, new LinearLayout.LayoutParams(i, 0, 1.0f));
+        setContentView(linearLayout);
+        PageMotion.installBackdrop(this, this.bg);
+        PageMotion.fromRight(linearLayout, 620L);
+        UiPolish.staggerGroup(linearLayout8);
+        this.card.setAlpha(0.0f);
+        this.card.setTranslationY(dp(14.0f));
+        this.card.animate().alpha(1.0f).translationY(0.0f).setDuration(280L).start();
         updateHeader();
     }
 
+    void m25lambda$build$0$comzuwesmartcourseliteWeekOverviewActivity(View view) {
+        finish();
+    }
+
+    void m26lambda$build$1$comzuwesmartcourseliteWeekOverviewActivity(View view) {
+        shiftWeek(-1);
+    }
+
+    void m27lambda$build$2$comzuwesmartcourseliteWeekOverviewActivity(View view) {
+        shiftWeek(1);
+    }
+
     private void updateHeader() {
-        this.title.setText(weekNo >= 1 ? "第 " + weekNo + " 周" : "假期");
-        String range = monday.format(FMT_MD) + " – " + monday.plusDays(6).format(FMT_MD);
-        boolean isThisWeek = weekNo == weekOfToday();
-        this.sub.setText(isThisWeek ? range + " · 本周" : range);
-        LocalDate today = LocalDate.now();
+        String str = this.weekNo >= 1 ? "第 " + this.weekNo + " 周" : "假期";
+        CharSequence text = this.title.getText();
+        if (text == null || !text.toString().contentEquals(str)) {
+            TextFx.flip(this.title, str);
+        }
+        StringBuilder sb = new StringBuilder();
+        LocalDate localDate = this.monday;
+        DateTimeFormatter dateTimeFormatter = FMT_MD;
+        sb.append(localDate.format(dateTimeFormatter));
+        sb.append(" – ");
+        sb.append(this.monday.plusDays(6L).format(dateTimeFormatter));
+        String sb2 = sb.toString();
+        boolean z = this.weekNo == weekOfToday();
+        TextView textView = this.sub;
+        if (z) {
+            sb2 = sb2 + " · 本周";
+        }
+        textView.setText(sb2);
+        LocalDate now = LocalDate.now();
         for (int i = 0; i < 7; i++) {
-            LocalDate d = monday.plusDays(i);
-            this.dayDate[i].setText(String.format(Locale.CHINA, "%02d", d.getDayOfMonth()));
-            boolean isToday = d.equals(today);
-            this.dayDate[i].setTextColor(isToday ? green : ink);
-            this.dayName[i].setTextColor(isToday ? green : muted);
+            LocalDate plusDays = this.monday.plusDays(i);
+            this.dayDate[i].setText(String.format(Locale.CHINA, "%02d", Integer.valueOf(plusDays.getDayOfMonth())));
+            boolean equals = plusDays.equals(now);
+            this.dayDate[i].setTextColor(equals ? this.green : this.ink);
+            this.dayName[i].setTextColor(equals ? this.green : this.muted);
         }
     }
 
     private int weekOfToday() {
-        String saved = getSharedPreferences(PREFS, 0).getString("sem_anchor", "");
-        if (!saved.isEmpty()) {
-            try { return WeekUtil.weekNumber(LocalDate.parse(saved), LocalDate.now()); } catch (Exception ignored) {}
+        String string = getSharedPreferences(PREFS, 0).getString("sem_anchor", "");
+        if (!string.isEmpty()) {
+            try {
+                return WeekUtil.weekNumber(LocalDate.parse(string), LocalDate.now());
+            } catch (Exception unused) {
+            }
         }
-        Integer real = WeekCalendar.weekFor(this, LocalDate.now());
-        if (real != null) {
-            return real.intValue();
+        Integer weekFor = WeekCalendar.weekFor(this, LocalDate.now());
+        if (weekFor != null) {
+            return weekFor.intValue();
         }
         return WeekUtil.weekNumber(WeekUtil.defaultAnchor(LocalDate.now()), LocalDate.now());
     }
 
-    private void shiftWeek(int delta) {
-        this.monday = this.monday.plusWeeks(delta);
-        this.weekNo += delta;
-        updateHeader();
-        load();
+    @Override // android.app.Activity, android.view.Window.Callback
+    public boolean dispatchTouchEvent(MotionEvent motionEvent) {
+        int actionMasked = motionEvent.getActionMasked();
+        if (actionMasked == 0) {
+            this.swipeDownX = motionEvent.getX();
+            this.swipeDownY = motionEvent.getY();
+            this.swipeDownAt = System.currentTimeMillis();
+            return super.dispatchTouchEvent(motionEvent);
+        }
+        if (actionMasked == 1) {
+            float x = motionEvent.getX() - this.swipeDownX;
+            float max = x / Math.max(1L, System.currentTimeMillis() - this.swipeDownAt);
+            boolean z = Math.abs(x) > Math.abs(motionEvent.getY() - this.swipeDownY) * 1.6f;
+            boolean z2 = Math.abs(max) > 0.45f;
+            boolean z3 = Math.abs(x) > ((float) dp(56.0f));
+            if (z && (z2 || z3)) {
+                shiftWeek(x < 0.0f ? 1 : -1);
+                Haptics.confirm(this.card);
+                return true;
+            }
+        }
+        return super.dispatchTouchEvent(motionEvent);
     }
 
-    // ------------------------------------------------------------ 数据
+    private void shiftWeek(int i) {
+        this.monday = this.monday.plusWeeks(i);
+        this.weekNo += i;
+        updateHeader();
+        load();
+        LinearLayout linearLayout = this.card;
+        if (linearLayout != null) {
+            linearLayout.setRotationY(0.0f);
+            linearLayout.setTranslationX(i > 0 ? dp(36.0f) : -dp(36.0f));
+            linearLayout.setAlpha(0.0f);
+            linearLayout.animate().translationX(0.0f).alpha(1.0f).setDuration(420L).setInterpolator(Motion.ENTER).start();
+        }
+    }
 
     private void load() {
-        JSONArray[] seeded = new JSONArray[7];
-        boolean any = false;
+        JSONArray[] jSONArrayArr = new JSONArray[7];
+        boolean z = false;
         for (int i = 0; i < 7; i++) {
-            seeded[i] = readDay(monday.plusDays(i));
-            if (seeded[i] != null) any = true;
+            JSONArray readDay = readDay(this.monday.plusDays(i));
+            jSONArrayArr[i] = readDay;
+            if (readDay != null) {
+                z = true;
+            }
         }
-        if (any) {
-            for (int i = 0; i < 7; i++) renderDay(i, seeded[i], false);
+        if (z) {
+            for (int i2 = 0; i2 < 7; i2++) {
+                renderDay(i2, jSONArrayArr[i2], false);
+            }
             flyGrid();
             updateStatus("已显示缓存 · 正在更新…");
         } else {
-            for (int i = 0; i < 7; i++) renderDay(i, new JSONArray(), false);
+            for (int i3 = 0; i3 < 7; i3++) {
+                renderDay(i3, new JSONArray(), false);
+            }
             updateStatus("正在加载…");
         }
-        fetch(seeded);
+        fetch(jSONArrayArr);
     }
 
-    private void fetch(JSONArray[] seeded) {
-        final LocalDate anchor = monday;
+    private void fetch(final JSONArray[] jSONArrayArr) {
+        LocalDate localDate = this.monday;
         this.finished = 0;
         this.total = 0;
         for (int i = 0; i < 7; i++) {
-            final int idx = i;
-            LocalDate d = anchor.plusDays(i);
-            long ts = getSharedPreferences(PREFS, 0).getLong(DAY_TS + d, 0L);
-            boolean fresh = seeded[i] != null && System.currentTimeMillis() - ts < STALE_MS;
-            if (fresh) continue;
-            this.total++;
-            io.execute(() -> {
-                JSONArray arr = null;
-                String error = null;
-                try {
-                    SchoolApi api = new SchoolApi(WeekOverviewActivity.this, auth, cookie);
-                    arr = toJson(api.getTodayCourses(d));
-                } catch (Exception e) {
-                    error = e.getMessage();
-                }
-                final JSONArray result = arr;
-                final String err = error;
-                main.post(() -> {
-                    finished++;
-                    if (result != null) {
-                        writeDay(d, result);
-                        renderDay(idx, result, true);
-                    } else if (seeded[idx] == null) {
-                        renderDay(idx, new JSONArray(), false);
-                    }
-                    if (finished >= total) {
-                        int n = 0;
-                        for (int c : counts) n += c;
-                        updateStatus(err == null ? ("共 " + n + " 门安排 · 已更新") : "部分未更新，已保留缓存");
-                    } else {
-                        updateStatus("更新中 " + finished + "/" + total + "…");
+            final LocalDate plusDays = localDate.plusDays(i);
+            long j = getSharedPreferences(PREFS, 0).getLong(DAY_TS + plusDays, 0L);
+            if (jSONArrayArr[i] == null || System.currentTimeMillis() - j >= STALE_MS) {
+                this.total++;
+                final int dayIdx = i;
+                this.io.execute(new Runnable() { // from class: com.zuwe.smartcourselite.WeekOverviewActivity.4
+                    @Override // java.lang.Runnable
+                    public final void run() {
+                        WeekOverviewActivity.this.m29lambda$fetch$0$comzuwesmartcourseliteWeekOverviewActivity(plusDays, dayIdx, jSONArrayArr);
                     }
                 });
-            });
+            }
         }
         if (this.total == 0) {
-            int n = 0;
-            for (int c : counts) n += c;
-            updateStatus("共 " + n + " 门安排 · 已是最新");
+            int i2 = 0;
+            for (int i3 : this.counts) {
+                i2 += i3;
+            }
+            updateStatus("共 " + i2 + " 门安排 · 已是最新");
         }
     }
 
-    private void updateStatus(String text) {
-        if (status != null) status.setText(text);
+    void m29lambda$fetch$0$comzuwesmartcourseliteWeekOverviewActivity(final LocalDate localDate, final int i, final JSONArray[] jSONArrayArr) {
+        JSONArray jSONArray = null;
+        String message = null;
+        try {
+            jSONArray = toJson(new SchoolApi(this, this.auth, this.cookie).getTodayCourses(localDate));
+        } catch (Exception e) {
+            message = e.getMessage();
+        }
+        final JSONArray fj = jSONArray;
+        final String fm = message;
+        this.main.post(new Runnable() { // from class: com.zuwe.smartcourselite.WeekOverviewActivity.5
+            @Override // java.lang.Runnable
+            public void run() {
+                WeekOverviewActivity.this.m30lambda$fetch$1$comzuwesmartcourseliteWeekOverviewActivity(fj, localDate, i, jSONArrayArr, fm);
+            }
+        });
     }
 
-    /** 全表：按“周一→周日、从上到下”的顺序，让每门课逐个飞入。 */
+    void m30lambda$fetch$1$comzuwesmartcourseliteWeekOverviewActivity(JSONArray jSONArray, LocalDate localDate, int i, JSONArray[] jSONArrayArr, String str) {
+        this.finished++;
+        if (jSONArray != null) {
+            writeDay(localDate, jSONArray);
+            renderDay(i, jSONArray, true);
+        } else if (jSONArrayArr[i] == null) {
+            renderDay(i, new JSONArray(), false);
+        }
+        if (this.finished >= this.total) {
+            int i2 = 0;
+            for (int i3 : this.counts) {
+                i2 += i3;
+            }
+            updateStatus(str == null ? "共 " + i2 + " 门安排 · 已更新" : "部分未更新，已保留缓存");
+            return;
+        }
+        updateStatus("更新中 " + this.finished + "/" + this.total + "…");
+    }
+
+    private void updateStatus(String str) {
+        TextView textView = this.status;
+        if (textView != null) {
+            textView.setText(str);
+        }
+    }
+
     private void flyGrid() {
-        List<View> cells = new ArrayList<>();
-        for (int i = 0; i < 7; i++) collectCells(i, cells);
-        playCells(cells);
+        ArrayList arrayList = new ArrayList();
+        for (int i = 0; i < 7; i++) {
+            collectCells(i, arrayList);
+        }
+        playCells(arrayList);
     }
 
-    /** 单列：只让这一列的课程逐个飞入，返回下一个可用序号。 */
-    private int flyColumn(int idx, int order) {
-        List<View> cells = new ArrayList<>();
-        collectCells(idx, cells);
-        playCells(cells);
-        return order;
+    private int flyColumn(int i, int i2) {
+        ArrayList arrayList = new ArrayList();
+        collectCells(i, arrayList);
+        playCells(arrayList);
+        return i2;
     }
 
-    private void collectCells(int idx, List<View> out) {
-        if (cols[idx] == null) return;
-        for (int c = 0; c < cols[idx].getChildCount(); c++) {
-            View v = cols[idx].getChildAt(c);
-            if ("course".equals(v.getTag())) out.add(v);
+    private void collectCells(int i, List<View> list) {
+        if (this.cols[i] == null) {
+            return;
+        }
+        for (int i2 = 0; i2 < this.cols[i].getChildCount(); i2++) {
+            View childAt = this.cols[i].getChildAt(i2);
+            if ("course".equals(childAt.getTag())) {
+                list.add(childAt);
+            }
         }
     }
 
-    /** 逐个飞入：每格从卡片最左侧飞进自己的位置，只带回弹、不做缩放。 */
-    private void playCells(final List<View> cells) {
-        final int n = cells.size();
-        if (n == 0) return;
-        for (int i = 0; i < n; i++) {
-            cells.get(i).setAlpha(0f);
+    private void playCells(final List<View> list) {
+        int size = list.size();
+        if (size == 0) {
+            return;
         }
-        final View anchor = this.card != null ? this.card : (View) cols[0];
-        anchor.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
-            @Override public boolean onPreDraw() {
-                anchor.getViewTreeObserver().removeOnPreDrawListener(this);
+        for (int i = 0; i < size; i++) {
+            list.get(i).setAlpha(0.0f);
+        }
+        LinearLayout linearLayout = this.card;
+        if (linearLayout == null) {
+            linearLayout = this.cols[0];
+        }
+        final LinearLayout card = linearLayout;
+        card.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() { // from class: com.zuwe.smartcourselite.WeekOverviewActivity.6
+            @Override // android.view.ViewTreeObserver.OnPreDrawListener
+            public boolean onPreDraw() {
+                card.getViewTreeObserver().removeOnPreDrawListener(this);
                 int[] base = new int[2];
-                anchor.getLocationInWindow(base);
-                final int[] xs = new int[n];
-                final int[] ys = new int[n];
-                for (int i = 0; i < n; i++) {
-                    int[] pos = new int[2];
-                    cells.get(i).getLocationInWindow(pos);
-                    xs[i] = pos[0];
-                    ys[i] = pos[1];
+                card.getLocationInWindow(base);
+                int size2 = list.size();
+                final int[] iArr = new int[size2];
+                final int[] iArr2 = new int[size2];
+                for (int i2 = 0; i2 < size2; i2++) {
+                    int[] iArr3 = new int[2];
+                    ((View) list.get(i2)).getLocationInWindow(iArr3);
+                    iArr[i2] = iArr3[0];
+                    iArr2[i2] = iArr3[1];
                 }
-                // 顺序：先周一自上而下，再周二自上而下……
-                List<Integer> order = new ArrayList<>();
-                for (int i = 0; i < n; i++) order.add(i);
-                Collections.sort(order, new java.util.Comparator<Integer>() {
-                    @Override public int compare(Integer a, Integer b) {
-                        if (xs[a] != xs[b]) return Integer.compare(xs[a], xs[b]);
-                        return Integer.compare(ys[a], ys[b]);
+                ArrayList arrayList = new ArrayList();
+                for (int i3 = 0; i3 < size2; i3++) {
+                    arrayList.add(Integer.valueOf(i3));
+                }
+                Collections.sort(arrayList, new Comparator<Integer>() { // from class: com.zuwe.smartcourselite.WeekOverviewActivity.6.1
+                    @Override // java.util.Comparator
+                    public int compare(Integer num, Integer num2) {
+                        int intValue = num.intValue();
+                        int intValue2 = num2.intValue();
+                        int[] iArr4 = iArr;
+                        int i4 = iArr4[intValue];
+                        int i5 = iArr4[intValue2];
+                        if (i4 != i5) {
+                            return Integer.compare(i4, i5);
+                        }
+                        int[] iArr5 = iArr2;
+                        return Integer.compare(iArr5[intValue], iArr5[intValue2]);
                     }
                 });
-                for (int k = 0; k < n; k++) {
-                    int i = order.get(k);
-                    View v = cells.get(i);
-                    // 起点的 X：卡片左缘再往左 48dp
-                    v.setTranslationX((base[0] - xs[i]) - dp(48f));
-                    v.animate().alpha(1f).translationX(0f)
-                            .setStartDelay(k * 120L)
-                            .setDuration(1000L)
-                            .setInterpolator(UiPolish.BOUNCE)
-                            .start();
+                for (int i4 = 0; i4 < size2; i4++) {
+                    View view = (View) list.get(((Integer) arrayList.get(i4)).intValue());
+                    view.setTranslationX((iArr[i4] - base[0]) - WeekOverviewActivity.this.dp(48.0f));
+                    view.setRotationY(-24.0f);
+                    view.setRotationX(-7.0f);
+                    view.setScaleX(0.88f);
+                    view.setScaleY(0.88f);
+                    view.setCameraDistance(WeekOverviewActivity.this.getResources().getDisplayMetrics().density * 14000.0f);
+                    view.animate().alpha(1.0f).translationX(0.0f).rotationY(0.0f).rotationX(0.0f).scaleX(1.0f).scaleY(1.0f).setStartDelay(i4 * 120).setDuration(420L).setInterpolator(Motion.SPRING).start();
                 }
                 return true;
             }
         });
     }
 
-    private JSONArray readDay(LocalDate d) {
-        String s = getSharedPreferences(PREFS, 0).getString(DAY_CACHE + d, "");
-        if (s.isEmpty()) return null;
-        try { return new JSONArray(s); } catch (Exception e) { return null; }
+    private JSONArray readDay(LocalDate localDate) {
+        String string = getSharedPreferences(PREFS, 0).getString(DAY_CACHE + localDate, "");
+        if (string.isEmpty()) {
+            return null;
+        }
+        try {
+            return new JSONArray(string);
+        } catch (Exception unused) {
+            return null;
+        }
     }
 
-    private void writeDay(LocalDate d, JSONArray arr) {
-        getSharedPreferences(PREFS, 0).edit()
-                .putString(DAY_CACHE + d, arr.toString())
-                .putLong(DAY_TS + d, System.currentTimeMillis())
-                .apply();
+    private void writeDay(LocalDate localDate, JSONArray jSONArray) {
+        getSharedPreferences(PREFS, 0).edit().putString(DAY_CACHE + localDate, jSONArray.toString()).putLong(DAY_TS + localDate, System.currentTimeMillis()).apply();
     }
 
     private JSONArray toJson(List<Course> list) {
-        JSONArray arr = new JSONArray();
-        for (Course c : list) {
+        JSONArray jSONArray = new JSONArray();
+        for (Course course : list) {
             try {
-                JSONObject o = new JSONObject();
-                o.put("courseName", c.name);
-                o.put("teacherName", c.teacher);
-                o.put("classRoom", c.room);
-                o.put("date", c.date);
-                o.put("startSection", c.startSection);
-                o.put("endSection", c.endSection);
-                arr.put(o);
-            } catch (Exception ignored) {}
-        }
-        return arr;
-    }
-
-    // ------------------------------------------------------------ 单元格
-
-    private void renderDay(int idx, JSONArray list, boolean animate) {
-        LinearLayout col = cols[idx];
-        col.removeAllViews();
-        List<Course> courses = new ArrayList<>();
-        if (list != null) {
-            for (int j = 0; j < list.length(); j++) {
-                JSONObject o = list.optJSONObject(j);
-                if (o != null) courses.add(new Course(o));
+                JSONObject jSONObject = new JSONObject();
+                jSONObject.put("courseName", course.name);
+                jSONObject.put("teacherName", course.teacher);
+                jSONObject.put("classRoom", course.room);
+                jSONObject.put("date", course.date);
+                jSONObject.put("startSection", course.startSection);
+                jSONObject.put("endSection", course.endSection);
+                jSONArray.put(jSONObject);
+            } catch (Exception unused) {
             }
         }
-        Collections.sort(courses, (a, b) -> Integer.compare(a.startSection, b.startSection));
-        counts[idx] = courses.size();
-        int section = 1;
-        while (section <= SECTIONS) {
-            Course covering = covering(courses, section);
-            if (covering == null) {
-                col.addView(emptyCell(), rowLp(section, 1));
-                section++;
-                continue;
-            }
-            int start = covering.startSection <= 0 ? 1 : covering.startSection;
-            int end = Math.min(SECTIONS, covering.endSection < start ? start : covering.endSection);
-            if (start == section) {
-                col.addView(courseCell(covering, end - start + 1), rowLp(start, end - start + 1));
-                section = end + 1;
-            } else {
-                section++;
+        return jSONArray;
+    }
+
+    private void renderDay(int i, JSONArray jSONArray, boolean z) {
+        LinearLayout linearLayout = this.cols[i];
+        linearLayout.removeAllViews();
+        ArrayList arrayList = new ArrayList();
+        if (jSONArray != null) {
+            for (int i2 = 0; i2 < jSONArray.length(); i2++) {
+                JSONObject optJSONObject = jSONArray.optJSONObject(i2);
+                if (optJSONObject != null) {
+                    arrayList.add(new Course(optJSONObject));
+                }
             }
         }
-        if (animate) {
-            flyColumn(idx, 0);
+        Collections.sort(arrayList, new Comparator() { // from class: com.zuwe.smartcourselite.WeekOverviewActivity.7
+            @Override // java.util.Comparator
+            public final int compare(Object obj, Object obj2) {
+                return Integer.compare(((Course) obj).startSection, ((Course) obj2).startSection);
+            }
+        });
+        this.counts[i] = arrayList.size();
+        boolean[] zArr = new boolean[14];
+        int i3 = 1;
+        while (i3 <= SECTIONS) {
+            if (!zArr[i3]) {
+                Course course = null;
+                int i4 = 0;
+                while (true) {
+                    if (i4 >= arrayList.size()) {
+                        break;
+                    }
+                    Course course2 = (Course) arrayList.get(i4);
+                    int i5 = course2.startSection <= 0 ? 1 : course2.startSection;
+                    int min = Math.min(SECTIONS, course2.endSection < i5 ? i5 : course2.endSection);
+                    if (i5 == i3) {
+                        course = course2;
+                        break;
+                    }
+                    if (course == null && i5 <= i3 && min >= i3) {
+                        course = course2;
+                    }
+                    i4++;
+                }
+                if (course == null) {
+                    linearLayout.addView(emptyCell(), rowLp(i3, 1));
+                } else {
+                    int i6 = course.startSection <= 0 ? 1 : course.startSection;
+                    int min2 = Math.min(SECTIONS, course.endSection < i6 ? i6 : course.endSection);
+                    int max = Math.max(i3, i6);
+                    for (int i7 = max; i7 <= min2; i7++) {
+                        zArr[i7] = true;
+                    }
+                    int i8 = (min2 - max) + 1;
+                    linearLayout.addView(courseCell(course, i8), rowLp(max, i8));
+                    i3 = min2 + 1;
+                }
+            }
+            i3++;
+        }
+        if (z) {
+            flyColumn(i, 0);
         }
     }
 
-    /** 跨行高度：跨过第 5/6 节之间的午饭时间要多留一段空隙。 */
-    private LinearLayout.LayoutParams rowLp(int start, int span) {
-        int last = start + span - 1;
-        boolean crossesLunch = start <= 5 && last > 5;
-        boolean endsAtLunch = last == 5;
-        int h = rowH * span + gap * (span - 1);
-        if (span > 1 && crossesLunch) h += lunchGap;
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, h);
-        lp.bottomMargin = gap + (endsAtLunch ? lunchGap : 0);
-        return lp;
+    private LinearLayout.LayoutParams rowLp(int i, int i2) {
+        int i3 = (i + i2) - 1;
+        boolean z = i <= 5 && i3 > 5;
+        boolean z2 = i3 == 5;
+        int i4 = (this.rowH * i2) + (this.gap * (i2 - 1));
+        if (i2 > 1 && z) {
+            i4 += this.lunchGap;
+        }
+        LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(-1, i4);
+        layoutParams.bottomMargin = this.gap + (z2 ? this.lunchGap : 0);
+        return layoutParams;
     }
 
-    private Course covering(List<Course> list, int section) {
-        for (Course c : list) {
-            int start = c.startSection <= 0 ? 1 : c.startSection;
-            int end = c.endSection < start ? start : c.endSection;
-            if (section >= start && section <= end) return c;
+    private Course covering(List<Course> list, int i) {
+        for (Course course : list) {
+            int i2 = course.startSection <= 0 ? 1 : course.startSection;
+            int i3 = course.endSection < i2 ? i2 : course.endSection;
+            if (i >= i2 && i <= i3) {
+                return course;
+            }
         }
         return null;
     }
 
     private View emptyCell() {
-        View v = new View(this);
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(UiPolish.withAlpha(bgAlt, 0x66));
-        d.setCornerRadius(dp(10f));
-        v.setBackground(d);
-        return v;
+        View view = new View(this);
+        GradientDrawable gradientDrawable = new GradientDrawable();
+        gradientDrawable.setColor(UiPolish.withAlpha(this.bgAlt, 102));
+        gradientDrawable.setCornerRadius(dp(10.0f));
+        view.setBackground(gradientDrawable);
+        return view;
     }
 
-    private View courseCell(Course c, int span) {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setGravity(Gravity.CENTER);
-        box.setPadding(dp(3), dp(3), dp(3), dp(3));
-        box.setTag("course");
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(blend(tintFor(c.name), cardBg, 0.74f));
-        d.setCornerRadius(dp(10f));
-        box.setBackground(d);
-
-        TextView name = txt(c.name == null || c.name.isEmpty() ? "课程" : c.name, 9, ink, true);
-        name.setGravity(Gravity.CENTER);
-        name.setMaxLines(span >= 3 ? 3 : (span == 2 ? 2 : 1));
-        box.addView(name);
-        // 地点始终显示（单节也显示），窄格子里允许折成两行，保证不被截断
-        String room = c.roomShort();
-        if (!room.isEmpty()) {
-            TextView r = txt(room, 7, muted, false);
-            r.setGravity(Gravity.CENTER);
-            r.setMaxLines(span >= 2 ? 2 : 1);
-            r.setLineSpacing(0f, 0.92f);
-            box.addView(r, top(1));
+    private View courseCell(final Course course, int i) {
+        LinearLayout linearLayout = new LinearLayout(this);
+        linearLayout.setOrientation(1);
+        linearLayout.setGravity(17);
+        linearLayout.setPadding(dp(3.0f), dp(3.0f), dp(3.0f), dp(3.0f));
+        linearLayout.setTag("course");
+        GradientDrawable gradientDrawable = new GradientDrawable();
+        gradientDrawable.setColor(blend(tintFor(course.name), this.cardBg, 0.74f));
+        gradientDrawable.setCornerRadius(dp(10.0f));
+        linearLayout.setBackground(gradientDrawable);
+        TextView txt = txt((course.name == null || course.name.isEmpty()) ? "课程" : course.name, 9.0f, this.ink, true);
+        txt.setGravity(17);
+        txt.setMaxLines(i < 3 ? i == 2 ? 2 : 1 : 3);
+        linearLayout.addView(txt);
+        String roomShort = course.roomShort();
+        if (!roomShort.isEmpty()) {
+            TextView txt2 = txt(roomShort, 7.0f, this.muted, false);
+            txt2.setGravity(17);
+            txt2.setMaxLines(i >= 2 ? 2 : 1);
+            txt2.setLineSpacing(0.0f, 0.92f);
+            linearLayout.addView(txt2, top(1.0f));
         }
-        box.setOnClickListener(v -> showCourse(c));
-        return box;
+        linearLayout.setOnClickListener(new View.OnClickListener() { // from class: com.zuwe.smartcourselite.WeekOverviewActivity.8
+            @Override // android.view.View.OnClickListener
+            public final void onClick(View view) {
+                WeekOverviewActivity.this.m28xbe61c6b1(course, view);
+            }
+        });
+        return linearLayout;
     }
 
-    private void showCourse(Course c) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("节次　").append(c.sections()).append('\n');
-        sb.append("时间　").append(c.timeRange()).append('\n');
-        if (!c.roomShort().isEmpty()) sb.append("地点　").append(c.roomShort()).append('\n');
-        if (c.teacher != null && !c.teacher.trim().isEmpty()) sb.append("教师　").append(c.teacher.trim());
-        new AlertDialog.Builder(this)
-                .setTitle(c.name == null ? "课程" : c.name)
-                .setMessage(sb.toString().trim())
-                .setPositiveButton("知道了", null)
-                .show();
+    void m28xbe61c6b1(Course course, View view) {
+        showCourse(course);
     }
 
-    // ------------------------------------------------------------ 小工具
-
-    private int tintFor(String name) {
-        int hash = name == null ? 0 : Math.abs(name.hashCode());
-        switch (hash % 4) {
-            case 0: return green;
-            case 1: return blue;
-            case 2: return red;
-            default: return blend(green, blue, 0.5f);
+    private void showCourse(Course course) {
+        StringBuilder sb = new StringBuilder("节次\u3000");
+        sb.append(course.sections());
+        sb.append("\n时间\u3000");
+        sb.append(course.timeRange());
+        sb.append('\n');
+        if (!course.roomShort().isEmpty()) {
+            sb.append("地点\u3000");
+            sb.append(course.roomShort());
+            sb.append('\n');
         }
+        if (course.teacher != null && !course.teacher.trim().isEmpty()) {
+            sb.append("教师\u3000");
+            sb.append(course.teacher.trim());
+        }
+        new AlertDialog.Builder(this).setTitle(course.name == null ? "课程" : course.name).setMessage(sb.toString().trim()).setPositiveButton("知道了", (DialogInterface.OnClickListener) null).show();
     }
 
-    private int blend(int a, int b, float f) {
-        float inv = 1f - f;
-        return Color.rgb(
-                (int) (Color.red(a) * inv + Color.red(b) * f),
-                (int) (Color.green(a) * inv + Color.green(b) * f),
-                (int) (Color.blue(a) * inv + Color.blue(b) * f));
+    private int tintFor(String str) {
+        int abs = (str == null ? 0 : Math.abs(str.hashCode())) % 4;
+        if (abs == 0) {
+            return this.green;
+        }
+        if (abs == 1) {
+            return this.blue;
+        }
+        if (abs == 2) {
+            return this.red;
+        }
+        return blend(this.green, this.blue, 0.5f);
     }
 
-    private int dp(float v) {
-        return Math.round(v * getResources().getDisplayMetrics().density);
+    private int blend(int i, int i2, float f) {
+        float f2 = 1.0f - f;
+        return Color.rgb((int) ((Color.red(i) * f2) + (Color.red(i2) * f)), (int) ((Color.green(i) * f2) + (Color.green(i2) * f)), (int) ((Color.blue(i) * f2) + (Color.blue(i2) * f)));
     }
 
-    private LinearLayout.LayoutParams top(float v) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
-        lp.topMargin = dp(v);
-        return lp;
+    public int dp(float f) {
+        return Math.round(f * getResources().getDisplayMetrics().density);
     }
 
-    private TextView txt(String s, float size, int color, boolean bold) {
-        TextView t = new TextView(this);
-        t.setText(s);
-        t.setTextSize(size);
-        t.setTextColor(color);
-        if (bold) t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        return t;
+    private LinearLayout.LayoutParams top(float f) {
+        LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(-2, -2);
+        layoutParams.topMargin = dp(f);
+        return layoutParams;
     }
 
-    private Button ghostBtn(String label) {
-        Button b = new Button(this);
-        b.setText(label);
-        b.setAllCaps(false);
-        b.setTextSize(11f);
-        b.setTextColor(muted);
-        GradientDrawable bgDrawable = new GradientDrawable();
-        bgDrawable.setColor(bgAlt);
-        bgDrawable.setCornerRadius(dp(17f));
-        bgDrawable.setStroke(dp(1f), line);
-        b.setBackground(bgDrawable);
-        b.setMinHeight(0);
-        b.setMinWidth(0);
-        b.setPadding(dp(12), 0, dp(12), 0);
-        return b;
+    private TextView txt(String str, float f, int i, boolean z) {
+        TextView textView = new TextView(this);
+        textView.setText(str);
+        textView.setTextSize(f);
+        textView.setTextColor(i);
+        if (z) {
+            textView.setTypeface(Typeface.DEFAULT, 1);
+        }
+        return textView;
     }
 
-    private Button arrowBtn(String label) { return null; }
-    // arrowBtn 已废弃（iOS 顶栏改用纯文字箭头）
+    private Button ghostBtn(String str) {
+        Button button = new Button(this);
+        button.setText(str);
+        button.setAllCaps(false);
+        button.setTextSize(11.0f);
+        button.setTextColor(this.muted);
+        GradientDrawable gradientDrawable = new GradientDrawable();
+        gradientDrawable.setColor(this.bgAlt);
+        gradientDrawable.setCornerRadius(dp(17.0f));
+        gradientDrawable.setStroke(dp(1.0f), this.line);
+        button.setBackground(gradientDrawable);
+        button.setMinHeight(0);
+        button.setMinWidth(0);
+        button.setPadding(dp(12.0f), 0, dp(12.0f), 0);
+        return button;
+    }
 }

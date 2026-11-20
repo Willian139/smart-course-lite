@@ -3,6 +3,10 @@ package com.zuwe.smartcourselite;
 import android.util.Base64;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -54,19 +58,19 @@ public final class TokenParser {
         }
         int i = -1;
         if (str3.isEmpty()) {
-            LinkedHashMap<String, Integer> linkedHashMap = new LinkedHashMap<String, Integer>();
+            LinkedHashMap linkedHashMap = new LinkedHashMap();
             Matcher matcher2 = AUTH_HEADER.matcher(replace);
             while (matcher2.find()) {
                 String cleanJwt2 = cleanJwt(matcher2.group(1));
                 if (!cleanJwt2.isEmpty()) {
-                    linkedHashMap.put(cleanJwt2, Integer.valueOf(linkedHashMap.getOrDefault(cleanJwt2, 0).intValue() + 1));
+                    linkedHashMap.put(cleanJwt2, Integer.valueOf(((Integer) linkedHashMap.getOrDefault(cleanJwt2, 0)).intValue() + 1));
                 }
             }
             int i2 = -1;
-            for (Map.Entry<String, Integer> entry : linkedHashMap.entrySet()) {
-                if (entry.getValue().intValue() > i2) {
-                    str3 = entry.getKey();
-                    i2 = entry.getValue().intValue();
+            for (Map.Entry entry : (java.util.Set<Map.Entry>) linkedHashMap.entrySet()) {
+                if (((Integer) entry.getValue()).intValue() > i2) {
+                    str3 = (String) entry.getKey();
+                    i2 = ((Integer) entry.getValue()).intValue();
                 }
             }
         }
@@ -85,40 +89,39 @@ public final class TokenParser {
                 str3 = matcher4.group();
             }
         }
-        LinkedHashMap<String, Integer> linkedHashMap2 = new LinkedHashMap<String, Integer>();
+        LinkedHashMap linkedHashMap2 = new LinkedHashMap();
         Matcher matcher5 = COOKIE.matcher(replace);
         while (matcher5.find()) {
             String cleanJwt4 = cleanJwt(matcher5.group(1));
             if (!cleanJwt4.isEmpty()) {
-                linkedHashMap2.put(cleanJwt4, Integer.valueOf(linkedHashMap2.getOrDefault(cleanJwt4, 0).intValue() + 1));
+                linkedHashMap2.put(cleanJwt4, Integer.valueOf(((Integer) linkedHashMap2.getOrDefault(cleanJwt4, 0)).intValue() + 1));
             }
         }
-        for (Map.Entry<String, Integer> entry2 : linkedHashMap2.entrySet()) {
-            if (entry2.getValue().intValue() > i) {
-                str2 = entry2.getKey();
-                i = entry2.getValue().intValue();
+        for (Map.Entry entry2 : (java.util.Set<Map.Entry>) linkedHashMap2.entrySet()) {
+            if (((Integer) entry2.getValue()).intValue() > i) {
+                str2 = (String) entry2.getKey();
+                i = ((Integer) entry2.getValue()).intValue();
             }
         }
         return new Result(str3, str2);
     }
 
-    /** 解析 JWT 的 exp，返回「有效至 21:05」/「已过期 11-11 21:05」，无法解析时返回空串。 */
     public static String expiryLabel(String str) {
         try {
             String[] split = str.trim().split("\\.");
             if (split.length < 2) {
                 return "";
             }
-            JSONObject payload = new JSONObject(new String(Base64.decode(split[1], 11), StandardCharsets.UTF_8));
-            long exp = payload.optLong("exp", 0L);
-            if (exp <= 0L) {
+            long optLong = new JSONObject(new String(Base64.decode(split[1], 11), StandardCharsets.UTF_8)).optLong("exp", 0L);
+            if (optLong <= 0) {
                 return "";
             }
-            java.time.LocalDateTime time = java.time.LocalDateTime.ofInstant(
-                    java.time.Instant.ofEpochSecond(exp), java.time.ZoneId.systemDefault());
-            String clock = time.format(java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm"));
-            return exp * 1000L < System.currentTimeMillis() ? ("已过期 " + clock) : ("有效至 " + clock);
-        } catch (Exception e) {
+            String format = LocalDateTime.ofInstant(Instant.ofEpochSecond(optLong), ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("MM-dd HH:mm"));
+            if (optLong * 1000 < System.currentTimeMillis()) {
+                return "已过期 " + format;
+            }
+            return "有效至 " + format;
+        } catch (Exception unused) {
             return "";
         }
     }
@@ -131,7 +134,7 @@ public final class TokenParser {
         for (int i = 0; i < 2; i++) {
             try {
                 trim = URLDecoder.decode(trim, StandardCharsets.UTF_8.name());
-            } catch (Exception e) {
+            } catch (Exception unused) {
             }
         }
         String trim2 = trim.replace("\\u003d", "=").trim();

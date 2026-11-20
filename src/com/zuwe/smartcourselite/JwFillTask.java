@@ -70,14 +70,14 @@ public final class JwFillTask extends Thread {
                         if (now.isEmpty()) {
                             empty++;
                         } else {
-                            main.writeCache(date, now);
+                            main.saveCache(date, now);
                             freshly++;
                             if (date.equals(today)) todayList = now;
                         }
                     } else {
                         List<Course> now = coursesFor(w, d, date);
                         JwUi.MergeStat st = JwUi.mergeCourses(old, now);
-                        main.writeCache(date, st.list);
+                        main.saveCache(date, st.list);
                         days++;
                         added += st.added;
                         filled += st.filled;

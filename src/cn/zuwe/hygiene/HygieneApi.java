@@ -1,105 +1,205 @@
 package cn.zuwe.hygiene;
 
 import android.webkit.CookieManager;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import java.io.*;
-import java.net.*;
-import java.nio.charset.StandardCharsets;
 
-/**
- * 卫生检查 API 客户端。
- *
- * 抓包结论（4.zip / 6.zip）：ihome 的接口用请求头 `token: <32 位十六进制>` 鉴权，
- * 与课表 skl 的 Authorization JWT 是两套系统；同一个 token 可跨天复用，所以登录一次即可长期使用。
- */
+/* loaded from: classes.dex */
 public final class HygieneApi {
     public static final String BASE = "https://ihome.zuwe.edu.cn";
-    public static final String USER_INFO = "/appsys/sys/user/info";
-    public static final String HISTORY_PAGE = "/appsi/mobile/api/history/getHistoryRoomPageBySn";
     public static final String HISTORY_DETAIL = "/appsi/mobile/api/history/getHistoryRoomDetailById/";
-    public static final String LOGIN_ROUTE_H5 = BASE + "/wxweb/#/zjweuOAuthLogin";
-
-    private final HygieneSession session;
+    public static final String HISTORY_PAGE = "/appsi/mobile/api/history/getHistoryRoomPageBySn";
+    public static final String LOGIN_ROUTE_H5 = "https://ihome.zuwe.edu.cn/wxweb/#/zjweuOAuthLogin";
+    public static final String USER_INFO = "/appsys/sys/user/info";
     private String overrideToken = "";
+    private final HygieneSession session;
 
-    public HygieneApi(HygieneSession session) { this.session = session; }
-
-    /** 用一个尚未保存的 token 试调接口（登录校验用）。 */
-    public HygieneApi withToken(String token) { overrideToken = token == null ? "" : token.trim(); return this; }
-
-    public JSONObject userInfo() throws IOException { return request("GET", USER_INFO, null, null); }
-    public JSONObject historyPage(int page, int limit, String planId, String personSn) throws IOException {
-        String query = "?page=" + enc(String.valueOf(page)) + "&limit=" + enc(String.valueOf(limit))
-                + "&planId=" + enc(nvl(planId)) + "&personSn=" + enc(nvl(personSn));
-        // 4.zip 记录：POST，筛选/分页字段放在 Query，body 为空。
-        return request("POST", HISTORY_PAGE + query, "", "application/x-www-form-urlencoded; charset=UTF-8");
-    }
-    public JSONObject historyDetail(String id) throws IOException {
-        return request("GET", HISTORY_DETAIL + pathEnc(id), null, null);
+    private static String nvl(String str) {
+        return str == null ? "" : str;
     }
 
-    private JSONObject request(String method, String path, String body, String contentType) throws IOException {
-        HttpURLConnection c = (HttpURLConnection) new URL(BASE + path).openConnection();
-        c.setRequestMethod(method); c.setConnectTimeout(15000); c.setReadTimeout(25000);
-        c.setRequestProperty("Accept", "application/json, text/plain, */*");
-        c.setRequestProperty("X-Requested-With", "XMLHttpRequest");
-        c.setRequestProperty("Referer", BASE + "/wxweb/");
-        String token = overrideToken.isEmpty() ? session.token() : overrideToken;
-        if (!token.isEmpty()) c.setRequestProperty("token", token);
-        String cookie = CookieManager.getInstance().getCookie(BASE + "/");
-        if (cookie != null && !cookie.isEmpty()) c.setRequestProperty("Cookie", cookie);
-        if ("POST".equalsIgnoreCase(method) || "PUT".equalsIgnoreCase(method)) {
-            c.setDoOutput(true); c.setRequestProperty("Content-Type", contentType == null ? "application/json;charset=UTF-8" : contentType);
-            byte[] data = (body == null ? "" : body).getBytes(StandardCharsets.UTF_8);
-            try (OutputStream out = c.getOutputStream()) { out.write(data); }
+    public HygieneApi(HygieneSession hygieneSession) {
+        this.session = hygieneSession;
+    }
+
+    public HygieneApi withToken(String str) {
+        this.overrideToken = str == null ? "" : str.trim();
+        return this;
+    }
+
+    public JSONObject userInfo() throws IOException {
+        return request("GET", USER_INFO, null, null);
+    }
+
+    public JSONObject historyPage(int i, int i2, String str, String str2) throws IOException {
+        return request("POST", "/appsi/mobile/api/history/getHistoryRoomPageBySn?page=" + enc(String.valueOf(i)) + "&limit=" + enc(String.valueOf(i2)) + "&planId=" + enc(nvl(str)) + "&personSn=" + enc(nvl(str2)), "", "application/x-www-form-urlencoded; charset=UTF-8");
+    }
+
+    public JSONObject historyDetail(String str) throws IOException {
+        return request("GET", HISTORY_DETAIL + pathEnc(str), null, null);
+    }
+
+    private JSONObject request(String str, String str2, String str3, String str4) throws IOException {
+        InputStream errorStream;
+        String read;
+        HttpURLConnection httpURLConnection = (HttpURLConnection) new URL(BASE + str2).openConnection();
+        httpURLConnection.setRequestMethod(str);
+        httpURLConnection.setConnectTimeout(15000);
+        httpURLConnection.setReadTimeout(25000);
+        httpURLConnection.setRequestProperty("Accept", "application/json, text/plain, */*");
+        httpURLConnection.setRequestProperty("X-Requested-With", "XMLHttpRequest");
+        httpURLConnection.setRequestProperty("Referer", "https://ihome.zuwe.edu.cn/wxweb/");
+        String str5 = this.overrideToken.isEmpty() ? this.session.token() : this.overrideToken;
+        if (!str5.isEmpty()) {
+            httpURLConnection.setRequestProperty("token", str5);
+        }
+        String cookie = CookieManager.getInstance().getCookie("https://ihome.zuwe.edu.cn/");
+        if (cookie != null && !cookie.isEmpty()) {
+            httpURLConnection.setRequestProperty("Cookie", cookie);
+        }
+        if ("POST".equalsIgnoreCase(str) || "PUT".equalsIgnoreCase(str)) {
+            httpURLConnection.setDoOutput(true);
+            if (str4 == null) {
+                str4 = "application/json;charset=UTF-8";
+            }
+            httpURLConnection.setRequestProperty("Content-Type", str4);
+            if (str3 == null) {
+                str3 = "";
+            }
+            byte[] bytes = str3.getBytes(StandardCharsets.UTF_8);
+            OutputStream outputStream = httpURLConnection.getOutputStream();
+            try {
+                outputStream.write(bytes);
+                if (outputStream != null) {
+                    outputStream.close();
+                }
+            } catch (Throwable th) {
+                if (outputStream != null) {
+                    try {
+                        outputStream.close();
+                    } catch (Throwable th2) {
+                        th.addSuppressed(th2);
+                    }
+                }
+                throw th;
+            }
         }
         try {
-            int status = c.getResponseCode();
-            String setCookie = c.getHeaderField("Set-Cookie");
-            if (setCookie != null) { CookieManager.getInstance().setCookie(BASE + "/", setCookie); CookieManager.getInstance().flush(); }
-            InputStream in = status >= 200 && status < 400 ? c.getInputStream() : c.getErrorStream();
-            String raw = read(in);
-            if (status < 200 || status >= 300) throw new IOException("HTTP " + status + ": " + raw);
-            try { return new JSONObject(raw); } catch (Exception e) { throw new IOException("响应不是 JSON：" + raw, e); }
-        } finally { c.disconnect(); }
+            int responseCode = httpURLConnection.getResponseCode();
+            String headerField = httpURLConnection.getHeaderField("Set-Cookie");
+            if (headerField != null) {
+                CookieManager.getInstance().setCookie("https://ihome.zuwe.edu.cn/", headerField);
+                CookieManager.getInstance().flush();
+            }
+            if (responseCode >= 200 && responseCode < 400) {
+                errorStream = httpURLConnection.getInputStream();
+                read = read(errorStream);
+                if (responseCode >= 200 || responseCode >= 300) {
+                    throw new IOException("HTTP " + responseCode + ": " + read);
+                }
+                try {
+                    return new JSONObject(read);
+                } catch (Exception e) {
+                    throw new IOException("响应不是 JSON：" + read, e);
+                }
+            }
+            errorStream = httpURLConnection.getErrorStream();
+            read = read(errorStream);
+            if (responseCode >= 200) {
+            }
+            throw new IOException("HTTP " + responseCode + ": " + read);
+        } finally {
+            httpURLConnection.disconnect();
+        }
     }
-    /** 从 user/info 响应里取账号名（personSn 就是 username）。 */
-    public static String usernameOf(JSONObject userInfo) {
-        JSONObject data = unwrapData(userInfo);
-        JSONObject user = data.optJSONObject("user");
-        if (user == null) user = data.optJSONObject("userInfo");
-        if (user == null) user = data;
-        String[] keys = {"username", "personSn", "userName", "userSn", "personNo"};
-        for (String k : keys) { String v = user.optString(k, "").trim(); if (!v.isEmpty()) return v; }
+
+    public static String usernameOf(JSONObject jSONObject) {
+        JSONObject unwrapData = unwrapData(jSONObject);
+        JSONObject optJSONObject = unwrapData.optJSONObject("user");
+        if (optJSONObject == null) {
+            optJSONObject = unwrapData.optJSONObject("userInfo");
+        }
+        if (optJSONObject != null) {
+            unwrapData = optJSONObject;
+        }
+        String[] strArr = {"username", "personSn", "userName", "userSn", "personNo"};
+        for (int i = 0; i < 5; i++) {
+            String trim = unwrapData.optString(strArr[i], "").trim();
+            if (!trim.isEmpty()) {
+                return trim;
+            }
+        }
         return "";
     }
-    public static JSONObject unwrapData(JSONObject root) {
-        JSONObject data = root.optJSONObject("data"); return data == null ? root : data;
+
+    public static JSONObject unwrapData(JSONObject jSONObject) {
+        JSONObject optJSONObject = jSONObject.optJSONObject("data");
+        return optJSONObject == null ? jSONObject : optJSONObject;
     }
-    public static JSONObject findPage(JSONObject root) {
-        JSONObject data = root.optJSONObject("data");
-        JSONObject p = root.optJSONObject("page"); if (p != null) return p;
-        if (data != null) { p = data.optJSONObject("page"); if (p != null) return p; }
-        return null;
+
+    public static JSONObject findPage(JSONObject jSONObject) {
+        JSONObject optJSONObject;
+        JSONObject optJSONObject2 = jSONObject.optJSONObject("data");
+        JSONObject optJSONObject3 = jSONObject.optJSONObject("page");
+        if (optJSONObject3 != null) {
+            return optJSONObject3;
+        }
+        if (optJSONObject2 == null || (optJSONObject = optJSONObject2.optJSONObject("page")) == null) {
+            return null;
+        }
+        return optJSONObject;
     }
-    public static JSONArray findList(JSONObject page) {
-        if (page == null) return new JSONArray();
-        JSONArray a = page.optJSONArray("list"); if (a != null) return a;
-        a = page.optJSONArray("records"); return a == null ? new JSONArray() : a;
+
+    public static JSONArray findList(JSONObject jSONObject) {
+        if (jSONObject == null) {
+            return new JSONArray();
+        }
+        JSONArray optJSONArray = jSONObject.optJSONArray("list");
+        if (optJSONArray != null) {
+            return optJSONArray;
+        }
+        JSONArray optJSONArray2 = jSONObject.optJSONArray("records");
+        return optJSONArray2 == null ? new JSONArray() : optJSONArray2;
     }
-    public static void ensureSuccess(JSONObject json) throws IOException {
-        int code = json.optInt("code", Integer.MIN_VALUE);
-        if (code != Integer.MIN_VALUE && code != 0 && code != 200 && code != 20000)
-            throw new IOException(json.optString("msg", json.optString("message", "业务接口失败，code=" + code)));
-        if (json.optBoolean("success", true) == false)
-            throw new IOException(json.optString("msg", json.optString("message", "业务接口返回失败")));
+
+    public static void ensureSuccess(JSONObject jSONObject) throws IOException {
+        int optInt = jSONObject.optInt("code", Integer.MIN_VALUE);
+        if (optInt != Integer.MIN_VALUE && optInt != 0 && optInt != 200 && optInt != 20000) {
+            throw new IOException(jSONObject.optString("msg", jSONObject.optString("message", "业务接口失败，code=" + optInt)));
+        }
+        if (!jSONObject.optBoolean("success", true)) {
+            throw new IOException(jSONObject.optString("msg", jSONObject.optString("message", "业务接口返回失败")));
+        }
     }
-    private static String read(InputStream in) throws IOException {
-        if (in == null) return ""; ByteArrayOutputStream out = new ByteArrayOutputStream(); byte[] b = new byte[8192]; int n;
-        while ((n = in.read(b)) != -1) out.write(b, 0, n); return out.toString("UTF-8");
+
+    private static String read(InputStream inputStream) throws IOException {
+        if (inputStream == null) {
+            return "";
+        }
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        byte[] bArr = new byte[8192];
+        while (true) {
+            int read = inputStream.read(bArr);
+            if (read == -1) {
+                return byteArrayOutputStream.toString("UTF-8");
+            }
+            byteArrayOutputStream.write(bArr, 0, read);
+        }
     }
-    private static String enc(String s) throws IOException { return URLEncoder.encode(s, "UTF-8"); }
-    private static String pathEnc(String s) throws IOException { return enc(s).replace("+", "%20"); }
-    private static String nvl(String s) { return s == null ? "" : s; }
+
+    private static String enc(String str) throws IOException {
+        return URLEncoder.encode(str, "UTF-8");
+    }
+
+    private static String pathEnc(String str) throws IOException {
+        return enc(str).replace("+", "%20");
+    }
 }

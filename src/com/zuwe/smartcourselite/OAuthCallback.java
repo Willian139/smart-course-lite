@@ -15,26 +15,25 @@ public final class OAuthCallback {
     }
 
     public static String authorizationFromUrl(String str) {
-        if (str == null || str.isEmpty()) {
-            return "";
+        if (str != null && !str.isEmpty()) {
+            int indexOf = str.indexOf(35);
+            if (indexOf >= 0) {
+                str = str.substring(indexOf + 1);
+            }
+            Pattern pattern = TOKEN;
+            if (str.startsWith("#")) {
+                str = str.substring(1);
+            }
+            Matcher matcher = pattern.matcher(str);
+            if (!matcher.find()) {
+                return "";
+            }
+            try {
+                return Uri.decode(matcher.group(1)).trim();
+            } catch (Exception unused) {
+            }
         }
-        int indexOf = str.indexOf(35);
-        if (indexOf >= 0) {
-            str = str.substring(indexOf + 1);
-        }
-        Pattern pattern = TOKEN;
-        if (str.startsWith("#")) {
-            str = str.substring(1);
-        }
-        Matcher matcher = pattern.matcher(str);
-        if (!matcher.find()) {
-            return "";
-        }
-        try {
-            return Uri.decode(matcher.group(1)).trim();
-        } catch (Exception e) {
-            return "";
-        }
+        return "";
     }
 
     public static boolean looksLikeJwt(String str) {
@@ -48,7 +47,7 @@ public final class OAuthCallback {
         try {
             new JSONObject(new String(Base64.decode(split[1], 11), StandardCharsets.UTF_8));
             return true;
-        } catch (Exception e) {
+        } catch (Exception unused) {
             return false;
         }
     }
@@ -58,7 +57,7 @@ public final class OAuthCallback {
             JSONObject jSONObject = new JSONObject(new String(Base64.decode(str.split("\\.", -1)[1], 11), StandardCharsets.UTF_8));
             String optString = jSONObject.optString("sub", "");
             return optString.isEmpty() ? jSONObject.optString("user", "") : optString;
-        } catch (Exception e) {
+        } catch (Exception unused) {
             return "";
         }
     }

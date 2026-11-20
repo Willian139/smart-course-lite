@@ -2,65 +2,124 @@ package cn.zuwe.hygiene;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.security.keystore.KeyGenParameterSpec;
 import android.util.Base64;
-import android.webkit.CookieManager;
+import java.security.Key;
 import java.security.KeyStore;
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
-/** 卫生检查登录态：token 用 AndroidKeyStore AES-GCM 加密保存，登录一次长期复用。 */
+/* loaded from: classes.dex */
 public final class HygieneSession {
-    private static final String PREF = "hygiene_session_v1";
     private static final String ALIAS = "hygiene_session_aes_v1";
-    private static final String KEY_TOKEN = "hygiene_token_enc";
     private static final String KEY_PERSON_SN = "hygiene_person_sn_enc";
-    private static final String KEY_USER = "hygiene_user_enc";
     private static final String KEY_TIME = "hygiene_saved_at";
+    private static final String KEY_TOKEN = "hygiene_token_enc";
+    private static final String KEY_USER = "hygiene_user_enc";
+    private static final String PREF = "hygiene_session_v1";
     private final SharedPreferences prefs;
 
-    public HygieneSession(Context context) { prefs = context.getSharedPreferences(PREF, Context.MODE_PRIVATE); }
-    public synchronized void save(String token, String personSn) { save(token, personSn, ""); }
-    public synchronized void save(String token, String personSn, String displayUser) {
-        try { prefs.edit().putString(KEY_TOKEN, encrypt(token == null ? "" : token))
-                .putString(KEY_PERSON_SN, encrypt(personSn == null ? "" : personSn))
-                .putString(KEY_USER, encrypt(displayUser == null ? "" : displayUser))
-                .putLong(KEY_TIME, System.currentTimeMillis()).apply(); }
-        catch (Exception e) { throw new IllegalStateException("无法安全保存卫生检查会话", e); }
+    public HygieneSession(Context context) {
+        this.prefs = context.getSharedPreferences(PREF, 0);
     }
-    public synchronized String user() { return decryptSafe(prefs.getString(KEY_USER, "")); }
-    public synchronized long savedAt() { return prefs.getLong(KEY_TIME, 0L); }
-    public synchronized String token() { return decryptSafe(prefs.getString(KEY_TOKEN, "")); }
-    public synchronized String personSn() { return decryptSafe(prefs.getString(KEY_PERSON_SN, "")); }
-    public synchronized boolean isAuthenticated() { return !token().isEmpty() && !personSn().isEmpty(); }
+
+    public synchronized void save(String str, String str2) {
+        save(str, str2, "");
+    }
+
+    public synchronized void save(String str, String str2, String str3) {
+        try {
+            SharedPreferences.Editor edit = this.prefs.edit();
+            if (str == null) {
+                str = "";
+            }
+            SharedPreferences.Editor putString = edit.putString(KEY_TOKEN, encrypt(str));
+            if (str2 == null) {
+                str2 = "";
+            }
+            SharedPreferences.Editor putString2 = putString.putString(KEY_PERSON_SN, encrypt(str2));
+            if (str3 == null) {
+                str3 = "";
+            }
+            putString2.putString(KEY_USER, encrypt(str3)).putLong(KEY_TIME, System.currentTimeMillis()).apply();
+        } catch (Exception e) {
+            throw new IllegalStateException("无法安全保存卫生检查会话", e);
+        }
+    }
+
+    public synchronized String user() {
+        return decryptSafe(this.prefs.getString(KEY_USER, ""));
+    }
+
+    public synchronized long savedAt() {
+        return this.prefs.getLong(KEY_TIME, 0L);
+    }
+
+    public synchronized String token() {
+        return decryptSafe(this.prefs.getString(KEY_TOKEN, ""));
+    }
+
+    public synchronized String personSn() {
+        return decryptSafe(this.prefs.getString(KEY_PERSON_SN, ""));
+    }
+
+    public synchronized boolean isAuthenticated() {
+        return !token().isEmpty() ? !personSn().isEmpty() : false;
+    }
+
     public synchronized void clear() {
-        prefs.edit().clear().apply();
+        this.prefs.edit().clear().apply();
     }
-    private String decryptSafe(String value) {
-        if (value == null || value.isEmpty()) return "";
-        try { return decrypt(value); } catch (Exception e) { clear(); return ""; }
+
+    private String decryptSafe(String str) {
+        if (str == null || str.isEmpty()) {
+            return "";
+        }
+        try {
+            return decrypt(str);
+        } catch (Exception unused) {
+            clear();
+            return "";
+        }
     }
-    private String encrypt(String plain) throws Exception {
-        Cipher c = Cipher.getInstance("AES/GCM/NoPadding"); c.init(Cipher.ENCRYPT_MODE, getKey());
-        byte[] encrypted = c.doFinal(plain.getBytes("UTF-8")); byte[] iv = c.getIV();
-        byte[] packed = new byte[iv.length + encrypted.length]; System.arraycopy(iv,0,packed,0,iv.length); System.arraycopy(encrypted,0,packed,iv.length,encrypted.length);
-        return Base64.encodeToString(packed, Base64.NO_WRAP);
+
+    private String encrypt(String str) throws Exception {
+        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+        cipher.init(1, getKey());
+        byte[] doFinal = cipher.doFinal(str.getBytes("UTF-8"));
+        byte[] iv = cipher.getIV();
+        byte[] bArr = new byte[iv.length + doFinal.length];
+        System.arraycopy(iv, 0, bArr, 0, iv.length);
+        System.arraycopy(doFinal, 0, bArr, iv.length, doFinal.length);
+        return Base64.encodeToString(bArr, 2);
     }
-    private String decrypt(String packedText) throws Exception {
-        byte[] packed = Base64.decode(packedText, Base64.NO_WRAP); if (packed.length < 13) throw new IllegalArgumentException("bad encrypted session");
-        byte[] iv = new byte[12], data = new byte[packed.length - 12]; System.arraycopy(packed,0,iv,0,12); System.arraycopy(packed,12,data,0,data.length);
-        Cipher c = Cipher.getInstance("AES/GCM/NoPadding"); c.init(Cipher.DECRYPT_MODE,getKey(),new GCMParameterSpec(128,iv));
-        return new String(c.doFinal(data),"UTF-8");
+
+    private String decrypt(String str) throws Exception {
+        byte[] decode = Base64.decode(str, 2);
+        if (decode.length < 13) {
+            throw new IllegalArgumentException("bad encrypted session");
+        }
+        byte[] bArr = new byte[12];
+        int length = decode.length - 12;
+        byte[] bArr2 = new byte[length];
+        System.arraycopy(decode, 0, bArr, 0, 12);
+        System.arraycopy(decode, 12, bArr2, 0, length);
+        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+        cipher.init(2, getKey(), new GCMParameterSpec(128, bArr));
+        return new String(cipher.doFinal(bArr2), "UTF-8");
     }
+
     private SecretKey getKey() throws Exception {
-        KeyStore ks = KeyStore.getInstance("AndroidKeyStore"); ks.load(null);
-        java.security.Key existing = ks.getKey(ALIAS,null); if(existing instanceof SecretKey)return (SecretKey)existing;
-        KeyGenerator kg = KeyGenerator.getInstance("AES","AndroidKeyStore");
-        kg.init(new android.security.keystore.KeyGenParameterSpec.Builder(ALIAS,
-                android.security.keystore.KeyProperties.PURPOSE_ENCRYPT | android.security.keystore.KeyProperties.PURPOSE_DECRYPT)
-                .setBlockModes(android.security.keystore.KeyProperties.BLOCK_MODE_GCM)
-                .setEncryptionPaddings(android.security.keystore.KeyProperties.ENCRYPTION_PADDING_NONE).setRandomizedEncryptionRequired(true).build());
-        return kg.generateKey();
+        KeyStore keyStore = KeyStore.getInstance("AndroidKeyStore");
+        keyStore.load(null);
+        Key key = keyStore.getKey(ALIAS, null);
+        if (key instanceof SecretKey) {
+            return (SecretKey) key;
+        }
+        KeyGenerator keyGenerator = KeyGenerator.getInstance("AES", "AndroidKeyStore");
+        keyGenerator.init(new KeyGenParameterSpec.Builder(ALIAS, 3).setBlockModes("GCM").setEncryptionPaddings("NoPadding").setRandomizedEncryptionRequired(true).build());
+        return keyGenerator.generateKey();
     }
 }

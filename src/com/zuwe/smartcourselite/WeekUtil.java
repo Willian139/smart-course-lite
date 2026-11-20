@@ -5,31 +5,29 @@ import java.time.LocalDate;
 import java.time.Month;
 import java.time.temporal.TemporalAdjusters;
 
-/** 周次计算：中国高校秋季学期 9 月开学、春季学期 2 月下旬开学。 */
+/* loaded from: classes.dex */
 public final class WeekUtil {
-    private WeekUtil() {}
-
-    public static LocalDate monday(LocalDate d) {
-        return d.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+    private WeekUtil() {
     }
 
-    /** 未校准时按校历：秋季 9 月 13 日当周（含）之后的周一、春季 2 月 23 日之后的周一作为第 1 周。 */
-    public static LocalDate defaultAnchor(LocalDate now) {
-        int m = now.getMonthValue();
-        LocalDate start;
-        if (m >= 8) {
-            start = LocalDate.of(now.getYear(), Month.SEPTEMBER, 13);
-        } else if (m == 1) {
-            start = LocalDate.of(now.getYear() - 1, Month.SEPTEMBER, 13);
+    public static LocalDate monday(LocalDate localDate) {
+        return localDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+    }
+
+    public static LocalDate defaultAnchor(LocalDate localDate) {
+        LocalDate of;
+        int monthValue = localDate.getMonthValue();
+        if (monthValue >= 8) {
+            of = LocalDate.of(localDate.getYear(), Month.SEPTEMBER, 13);
+        } else if (monthValue == 1) {
+            of = LocalDate.of(localDate.getYear() - 1, Month.SEPTEMBER, 13);
         } else {
-            start = LocalDate.of(now.getYear(), Month.FEBRUARY, 23);
+            of = LocalDate.of(localDate.getYear(), Month.FEBRUARY, 23);
         }
-        return start.with(TemporalAdjusters.nextOrSame(DayOfWeek.MONDAY));
+        return of.with(TemporalAdjusters.nextOrSame(DayOfWeek.MONDAY));
     }
 
-    /** 返回第几周；第 1 周之前返回 0 或负数。 */
-    public static int weekNumber(LocalDate anchor, LocalDate date) {
-        long days = monday(date).toEpochDay() - monday(anchor).toEpochDay();
-        return (int) Math.floor(days / 7.0) + 1;
+    public static int weekNumber(LocalDate localDate, LocalDate localDate2) {
+        return ((int) Math.floor((monday(localDate2).toEpochDay() - monday(localDate).toEpochDay()) / 7.0d)) + 1;
     }
 }

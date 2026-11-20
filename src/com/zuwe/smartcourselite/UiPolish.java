@@ -7,547 +7,614 @@ import android.app.Activity;
 import android.app.Dialog;
 import android.content.Context;
 import android.content.res.ColorStateList;
+import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.LinearGradient;
+import android.graphics.Outline;
 import android.graphics.Paint;
 import android.graphics.Path;
-import android.graphics.PorterDuff;
-import android.graphics.PorterDuffXfermode;
-import android.graphics.Rect;
-import android.graphics.Shader;
-import android.graphics.drawable.ClipDrawable;
+import android.graphics.PathMeasure;
+import android.graphics.RectF;
+import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
-import android.graphics.drawable.InsetDrawable;
-import android.graphics.drawable.LayerDrawable;
 import android.graphics.drawable.RippleDrawable;
-import android.graphics.drawable.ShapeDrawable;
-import android.graphics.drawable.shapes.RectShape;
 import android.os.Handler;
 import android.os.Looper;
-import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.ViewTreeObserver;
 import android.view.ViewOutlineProvider;
-import android.view.animation.AccelerateDecelerateInterpolator;
+import android.view.ViewTreeObserver;
 import android.view.animation.DecelerateInterpolator;
-import android.view.animation.OvershootInterpolator;
 import android.view.animation.PathInterpolator;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * UiPolish v2 — 全局动效系统。
- * 所有入场动画用 OnPreDrawListener 保证在布局完成后才播放，避免“动画跑完了视图还没画出来”。
- */
+/* loaded from: classes.dex */
 public final class UiPolish {
-
-    // M3 motion tokens（emphasized 家族）：入场减速、离场加速、常态强调
-    static final PathInterpolator EASE_OUT = new PathInterpolator(0.05f, 0.7f, 0.1f, 1f);
-    static final PathInterpolator EASE_IN_OUT = new PathInterpolator(0.2f, 0f, 0f, 1f);
-    private static final PathInterpolator PREMIUM_EASE = new PathInterpolator(0.2f, 0f, 0f, 1f);
-    static final PathInterpolator OVERSHOOT = new PathInterpolator(0.34f, 1.3f, 0.64f, 1f);
-    private static final long DUR_SHORT = 180L;
-    private static final long DUR_MED = 380L;
-    private static final long DUR_LONG = 600L;
+    private static final long DUR_LONG = 600;
+    private static final long DUR_MED = 380;
+    private static final long DUR_SHORT = 180;
+    private static final long FLY_DURATION = 700;
+    private static final long FLY_STEP = 120;
+    static final PathInterpolator EASE_OUT = Motion.ENTER;
+    static final PathInterpolator EASE_IN_OUT = Motion.STANDARD;
+    private static final PathInterpolator PREMIUM_EASE = Motion.STANDARD;
+    static final PathInterpolator OVERSHOOT = Motion.SPRING;
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
+    static final PathInterpolator BOUNCE = Motion.SPRING;
 
-    private UiPolish() {}
+    static void lambda$skeleton$0() {
+    }
 
-    // ===== 按压反馈 =====
+    private UiPolish() {
+    }
 
     static final class Press implements View.OnTouchListener {
-        @Override public boolean onTouch(View view, MotionEvent e) {
-            boolean down = e.getActionMasked() == MotionEvent.ACTION_DOWN;
-            float scale = down ? 0.97f : 1f;
-            long dur = down ? DUR_SHORT : 260L;
-            view.animate().scaleX(scale).scaleY(scale).setDuration(dur)
-                    .setInterpolator(down ? EASE_IN_OUT : EASE_OUT).start();
+        Press() {
+        }
+
+        @Override // android.view.View.OnTouchListener
+        public boolean onTouch(View view, MotionEvent motionEvent) {
+            boolean z = motionEvent.getActionMasked() == 0;
+            if (z) {
+                Haptics.tick(view);
+            }
+            float f = z ? 0.97f : 1.0f;
+            view.animate().scaleX(f).scaleY(f).setDuration(z ? 180L : 260L).setInterpolator(z ? Motion.STANDARD : Motion.ENTER).start();
             return false;
         }
     }
 
-    public static void pressable(View v) {
-        if (v != null) v.setOnTouchListener(new Press());
+    public static void pressable(View view) {
+        if (view != null) {
+            view.setOnTouchListener(new Press());
+        }
     }
 
-    public static void ripple(View v, int color) {
-        if (v == null) return;
-        Drawable bg = v.getBackground();
-        int pl = v.getPaddingLeft(), pt = v.getPaddingTop(), pr = v.getPaddingRight(), pb = v.getPaddingBottom();
-        v.setBackground(new RippleDrawable(ColorStateList.valueOf(color), bg, null));
-        v.setPadding(pl, pt, pr, pb);
+    public static void ripple(View view, int i) {
+        if (view == null) {
+            return;
+        }
+        Drawable background = view.getBackground();
+        int paddingLeft = view.getPaddingLeft();
+        int paddingTop = view.getPaddingTop();
+        int paddingRight = view.getPaddingRight();
+        int paddingBottom = view.getPaddingBottom();
+        view.setBackground(new RippleDrawable(ColorStateList.valueOf(i), background, null));
+        view.setPadding(paddingLeft, paddingTop, paddingRight, paddingBottom);
     }
 
-    // ===== Stagger 错开级联入场 (45ms 间隔，布局后播放) =====
-
-    /**
-     * 单个视图滑入淡入。index 控制延迟（45ms × index）。
-     * 用 OnPreDrawListener 确保布局完成后才播放，解决缓存态动画不可见问题。
-     */
-    public static void staggerIn(final View view, final int index) {
-        if (view == null) return;
+    public static void staggerIn(final View view, final int i) {
+        if (view == null) {
+            return;
+        }
         view.animate().cancel();
-        final float density = view.getResources().getDisplayMetrics().density;
-        view.setAlpha(0f);
-        view.setTranslationX(0f);
-        view.setTranslationY(14f * density);
+        float f = view.getResources().getDisplayMetrics().density;
+        view.setAlpha(0.0f);
+        view.setTranslationX(0.0f);
+        view.setTranslationY(f * 14.0f);
         view.setScaleX(0.97f);
         view.setScaleY(0.97f);
-        view.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
-            @Override public boolean onPreDraw() {
+        view.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() { // from class: com.zuwe.smartcourselite.UiPolish.1
+            @Override // android.view.ViewTreeObserver.OnPreDrawListener
+            public boolean onPreDraw() {
                 view.getViewTreeObserver().removeOnPreDrawListener(this);
                 view.animate().cancel();
-                view.animate()
-                        .alpha(1f).translationX(0f).translationY(0f).scaleX(1f).scaleY(1f)
-                        .setStartDelay(Math.min(index, 12) * 30L)
-                        .setDuration(DUR_LONG)
-                        .setInterpolator(EASE_OUT)
-                        .start();
+                view.animate().alpha(1.0f).translationX(0.0f).translationY(0.0f).scaleX(1.0f).scaleY(1.0f).setStartDelay(Math.min(i, 12) * 30).setDuration(UiPolish.DUR_LONG).setInterpolator(Motion.ENTER).start();
                 return true;
             }
         });
     }
 
-    /** 仿「关于此项目」的左侧滑入 + 明显回弹。index 控制级联延迟。 */
-    static final PathInterpolator BOUNCE = new PathInterpolator(0.16f, 1.65f, 0.38f, 1f);
-    private static final long FLY_DURATION = 700L;
-    private static final long FLY_STEP = 120L;
-
-    public static void flyIn(final View view, final int index) {
-        if (view == null) return;
+    public static void flyIn(final View view, final int i) {
+        if (view == null) {
+            return;
+        }
         view.animate().cancel();
-        final float density = view.getResources().getDisplayMetrics().density;
-        view.setAlpha(0f);
-        view.setTranslationX(-110f * density);
-        view.setTranslationY(0f);
+        float f = view.getResources().getDisplayMetrics().density;
+        view.setAlpha(0.0f);
+        view.setTranslationX(f * (-110.0f));
+        view.setTranslationY(0.0f);
         view.setScaleX(0.86f);
         view.setScaleY(0.86f);
-        view.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
-            @Override public boolean onPreDraw() {
+        view.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() { // from class: com.zuwe.smartcourselite.UiPolish.2
+            @Override // android.view.ViewTreeObserver.OnPreDrawListener
+            public boolean onPreDraw() {
                 view.getViewTreeObserver().removeOnPreDrawListener(this);
                 view.animate().cancel();
-                view.animate()
-                        .alpha(1f).translationX(0f).scaleX(1f).scaleY(1f)
-                        .setStartDelay(Math.min(index, 12) * FLY_STEP)
-                        .setDuration(FLY_DURATION)
-                        .setInterpolator(BOUNCE)
-                        .start();
+                view.animate().alpha(1.0f).translationX(0.0f).scaleX(1.0f).scaleY(1.0f).setStartDelay(Math.min(i, 12) * UiPolish.FLY_STEP).setDuration(UiPolish.FLY_DURATION).setInterpolator(Motion.SPRING).start();
                 return true;
             }
         });
     }
 
-    /**
-     * 级联入场整组子视图。用 OnPreDrawListener 在布局后逐个播放。
-     */
-    public static void staggerGroup(final ViewGroup group) {
-        if (group == null) return;
-        final int n = group.getChildCount();
-        final float density = group.getResources().getDisplayMetrics().density;
-        for (int i = 0; i < n; i++) {
-            View child = group.getChildAt(i);
-            child.setAlpha(0f);
-            child.setTranslationY(14f * density);
-            child.setScaleX(0.97f);
-            child.setScaleY(0.97f);
+    public static void staggerGroup(final ViewGroup viewGroup) {
+        if (viewGroup == null) {
+            return;
         }
-        group.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
-            @Override public boolean onPreDraw() {
-                group.getViewTreeObserver().removeOnPreDrawListener(this);
-                for (int i = 0; i < n; i++) {
-                    final View child = group.getChildAt(i);
-                    final int idx = i;
-                    child.animate()
-                            .alpha(1f).translationY(0f).scaleX(1f).scaleY(1f)
-                            .setStartDelay(Math.min(idx, 10) * 30L)
-                            .setDuration(DUR_LONG)
-                            .setInterpolator(EASE_OUT)
-                            .start();
+        final int childCount = viewGroup.getChildCount();
+        float f = viewGroup.getResources().getDisplayMetrics().density;
+        for (int i = 0; i < childCount; i++) {
+            View childAt = viewGroup.getChildAt(i);
+            childAt.setAlpha(0.0f);
+            childAt.setTranslationY(14.0f * f);
+            childAt.setScaleX(0.97f);
+            childAt.setScaleY(0.97f);
+        }
+        viewGroup.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() { // from class: com.zuwe.smartcourselite.UiPolish.3
+            @Override // android.view.ViewTreeObserver.OnPreDrawListener
+            public boolean onPreDraw() {
+                viewGroup.getViewTreeObserver().removeOnPreDrawListener(this);
+                for (int i2 = 0; i2 < childCount; i2++) {
+                    viewGroup.getChildAt(i2).animate().alpha(1.0f).translationY(0.0f).scaleX(1.0f).scaleY(1.0f).setStartDelay(Math.min(i2, 10) * 30).setDuration(UiPolish.DUR_LONG).setInterpolator(Motion.ENTER).start();
                 }
                 return true;
             }
         });
     }
 
-    public static void slideInHoriz(View view, int dir, int delay) {
-        if (view == null) return;
-        float density = view.getResources().getDisplayMetrics().density;
+    public static void slideInHoriz(View view, int i, int i2) {
+        if (view == null) {
+            return;
+        }
+        float f = view.getResources().getDisplayMetrics().density;
         view.animate().cancel();
-        view.setAlpha(0f);
-        view.setTranslationX(24f * density * dir);
+        view.setAlpha(0.0f);
+        view.setTranslationX(f * 24.0f * i);
         view.setScaleX(0.97f);
         view.setScaleY(0.97f);
-        view.animate().alpha(1f).translationX(0f).scaleX(1f).scaleY(1f)
-                .setStartDelay(delay).setDuration(DUR_LONG).setInterpolator(EASE_OUT).start();
+        view.animate().alpha(1.0f).translationX(0.0f).scaleX(1.0f).scaleY(1.0f).setStartDelay(i2).setDuration(DUR_LONG).setInterpolator(EASE_OUT).start();
     }
 
-    // ===== 页面/容器过渡：缩放+淡入 =====
-
-    /**
-     * 整个容器从 0.92 缩放 + 淡入，模拟 Container Transform 的“展开”感。
-     */
-    public static void containerExpand(final View container) {
-        if (container == null) return;
-        container.animate().cancel();
-        container.setAlpha(0f);
-        container.setScaleX(0.97f);
-        container.setScaleY(0.97f);
-        container.setTranslationY(12f * container.getResources().getDisplayMetrics().density);
-        container.setPivotY(0f);
-        container.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
-            @Override public boolean onPreDraw() {
-                container.getViewTreeObserver().removeOnPreDrawListener(this);
-                container.animate().cancel();
-                container.animate()
-                        .alpha(1f).scaleX(1f).scaleY(1f).translationY(0f)
-                        .setDuration(DUR_LONG)
-                        .setInterpolator(EASE_OUT)
-                        .start();
+    public static void containerExpand(final View view) {
+        if (view == null) {
+            return;
+        }
+        view.animate().cancel();
+        view.setAlpha(0.0f);
+        view.setScaleX(0.97f);
+        view.setScaleY(0.97f);
+        view.setTranslationY(view.getResources().getDisplayMetrics().density * 12.0f);
+        view.setPivotY(0.0f);
+        view.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() { // from class: com.zuwe.smartcourselite.UiPolish.4
+            @Override // android.view.ViewTreeObserver.OnPreDrawListener
+            public boolean onPreDraw() {
+                view.getViewTreeObserver().removeOnPreDrawListener(this);
+                view.animate().cancel();
+                view.animate().alpha(1.0f).scaleX(1.0f).scaleY(1.0f).translationY(0.0f).setDuration(UiPolish.DUR_LONG).setInterpolator(Motion.ENTER).start();
                 return true;
             }
         });
     }
 
-    /**
-     * 点击源视图 → 目标 Activity 的过渡。用 overridePendingTransition + 源视图缩放。
-     */
-    public static void containerTransform(final View source, final Runnable launchActivity) {
-        if (source == null) {
-            launchActivity.run();
-            return;
+    public static void containerTransform(final View view, final Runnable runnable) {
+        if (view == null) {
+            runnable.run();
+        } else {
+            view.animate().scaleX(0.96f).scaleY(0.96f).alpha(0.85f).setDuration(FLY_STEP).setInterpolator(EASE_IN_OUT).withEndAction(new Runnable() { // from class: com.zuwe.smartcourselite.UiPolish.5
+                @Override // java.lang.Runnable
+                public final void run() {
+                    UiPolish.lambda$containerTransform$0(runnable, view);
+                }
+            }).start();
         }
-        source.animate()
-                .scaleX(0.96f).scaleY(0.96f).alpha(0.85f)
-                .setDuration(120L).setInterpolator(EASE_IN_OUT)
-                .withEndAction(() -> {
-                    launchActivity.run();
-                    source.animate().scaleX(1f).scaleY(1f).alpha(1f)
-                            .setDuration(220L).setStartDelay(40L)
-                            .setInterpolator(EASE_OUT).start();
-                })
-                .start();
     }
 
-    // ===== 表面 Surface =====
+    static void lambda$containerTransform$0(Runnable runnable, View view) {
+        runnable.run();
+        view.animate().scaleX(1.0f).scaleY(1.0f).alpha(1.0f).setDuration(180L).setStartDelay(40L).setInterpolator(EASE_OUT).start();
+    }
 
-    /** 即存风格表面：纯色圆角卡片 + 极细描边，不用渐变/阴影。 */
-    public static void glass(View view, int cardBg, int lineColor, float cornerDp) {
-        if (view == null) return;
-        final float d = view.getResources().getDisplayMetrics().density;
-        final int r = Math.round(cornerDp * d);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(cardBg);
-        bg.setCornerRadius(r);
-        bg.setStroke(Math.max(1, Math.round(1 * d)), lineColor);
-        view.setBackground(bg);
-        view.setElevation(0f);
-        view.setOutlineProvider(new ViewOutlineProvider() {
-            @Override public void getOutline(View v, android.graphics.Outline outline) {
-                outline.setRoundRect(0, 0, v.getWidth(), v.getHeight(), r);
+    public static void glass(View view, int i, int i2, float f) {
+        if (view == null) {
+            return;
+        }
+        float f2 = view.getResources().getDisplayMetrics().density;
+        final int round = Math.round(f * f2);
+        GradientDrawable gradientDrawable = new GradientDrawable();
+        gradientDrawable.setColor(i);
+        gradientDrawable.setCornerRadius(round);
+        gradientDrawable.setStroke(Math.max(1, Math.round(f2 * 1.0f)), i2);
+        view.setBackground(gradientDrawable);
+        view.setElevation(0.0f);
+        view.setOutlineProvider(new ViewOutlineProvider() { // from class: com.zuwe.smartcourselite.UiPolish.6
+            @Override // android.view.ViewOutlineProvider
+            public void getOutline(View view2, Outline outline) {
+                outline.setRoundRect(0, 0, view2.getWidth(), view2.getHeight(), round);
             }
         });
         view.setClipToOutline(true);
     }
 
-    public static int withAlpha(int color, int alpha) {
-        return Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color));
+    public static int withAlpha(int i, int i2) {
+        return Color.argb(i2, Color.red(i), Color.green(i), Color.blue(i));
     }
 
-    // ===== 骨架屏 Skeleton + Shimmer =====
-
-    public static Runnable skeleton(ViewGroup container, int count, int skelBg, int shimmerColor, int lineColor) {
-        if (container == null) return () -> {};
-        container.removeAllViews();
-        float d = container.getResources().getDisplayMetrics().density;
-        List<View> shimmerBars = new ArrayList<>();
-        for (int i = 0; i < count; i++) {
-            LinearLayout card = new LinearLayout(container.getContext());
-            card.setOrientation(LinearLayout.VERTICAL);
-            card.setPadding(Math.round(16 * d), Math.round(16 * d), Math.round(16 * d), Math.round(16 * d));
-            GradientDrawable bg = new GradientDrawable();
-            bg.setColor(skelBg);
-            bg.setCornerRadius(Math.round(16 * d));
-            bg.setStroke(Math.round(d), lineColor);
-            card.setBackground(bg);
-            LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(-1, -2);
-            cardLp.topMargin = i == 0 ? 0 : Math.round(10 * d);
-            card.addView(skelBar(container.getContext(), 160 * d, shimmerColor, shimmerBars));
-            card.setElevation(0f);
-            card.addView(skelBar(container.getContext(), 220 * d, shimmerColor, shimmerBars), lpTop(8 * d));
-            card.addView(skelBar(container.getContext(), 100 * d, shimmerColor, shimmerBars), lpTop(8 * d));
-            container.addView(card, cardLp);
+    public static Runnable skeleton(final ViewGroup viewGroup, int i, int i2, int i3, int i4) {
+        if (viewGroup == null) {
+            return new Runnable() { // from class: com.zuwe.smartcourselite.UiPolish.7
+                @Override // java.lang.Runnable
+                public final void run() {
+                    UiPolish.lambda$skeleton$0();
+                }
+            };
         }
-        ShimmerController ctrl = new ShimmerController(shimmerBars);
-        ctrl.start();
-        return () -> { ctrl.stop(); container.removeAllViews(); };
+        viewGroup.removeAllViews();
+        float f = viewGroup.getResources().getDisplayMetrics().density;
+        ArrayList arrayList = new ArrayList();
+        int i5 = 0;
+        while (i5 < i) {
+            LinearLayout linearLayout = new LinearLayout(viewGroup.getContext());
+            linearLayout.setOrientation(1);
+            float f2 = 16.0f * f;
+            linearLayout.setPadding(Math.round(f2), Math.round(f2), Math.round(f2), Math.round(f2));
+            GradientDrawable gradientDrawable = new GradientDrawable();
+            gradientDrawable.setColor(i2);
+            gradientDrawable.setCornerRadius(Math.round(f2));
+            gradientDrawable.setStroke(Math.round(f), i4);
+            linearLayout.setBackground(gradientDrawable);
+            LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(-1, -2);
+            layoutParams.topMargin = i5 == 0 ? 0 : Math.round(10.0f * f);
+            linearLayout.addView(skelBar(viewGroup.getContext(), 160.0f * f, i3, arrayList));
+            linearLayout.setElevation(0.0f);
+            float f3 = 8.0f * f;
+            linearLayout.addView(skelBar(viewGroup.getContext(), 220.0f * f, i3, arrayList), lpTop(f3));
+            linearLayout.addView(skelBar(viewGroup.getContext(), 100.0f * f, i3, arrayList), lpTop(f3));
+            viewGroup.addView(linearLayout, layoutParams);
+            i5++;
+        }
+        final ShimmerController shimmerController = new ShimmerController(arrayList);
+        shimmerController.start();
+        return new Runnable() { // from class: com.zuwe.smartcourselite.UiPolish.8
+            @Override // java.lang.Runnable
+            public final void run() {
+                UiPolish.lambda$skeleton$1(shimmerController, viewGroup);
+            }
+        };
     }
 
-    private static LinearLayout.LayoutParams lpTop(float dp) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
-        lp.topMargin = Math.round(dp);
-        return lp;
+    static void lambda$skeleton$1(ShimmerController shimmerController, ViewGroup viewGroup) {
+        shimmerController.stop();
+        viewGroup.removeAllViews();
     }
 
-    private static View skelBar(Context ctx, float widthDp, int shimmerColor, List<View> bars) {
-        float d = ctx.getResources().getDisplayMetrics().density;
-        FrameLayout frame = new FrameLayout(ctx);
-        GradientDrawable barBg = new GradientDrawable();
-        barBg.setColor(0x33FFFFFF);
-        barBg.setCornerRadius(Math.round(4 * d));
-        frame.setBackground(barBg);
-        View shimmer = new View(ctx);
-        int shimmerW = Math.round(100 * d);
-        FrameLayout.LayoutParams sLp = new FrameLayout.LayoutParams(shimmerW, -1);
-        shimmer.setLayoutParams(sLp);
-        GradientDrawable shDrawable = new GradientDrawable(
-                GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{ 0x00FFFFFF, shimmerColor, 0x00FFFFFF });
-        shDrawable.setCornerRadius(Math.round(4 * d));
-        shimmer.setBackground(shDrawable);
-        shimmer.setX(-shimmerW);
-        frame.addView(shimmer);
-        bars.add(shimmer);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(Math.round(widthDp), Math.round(14 * d));
-        return frame;
+    private static LinearLayout.LayoutParams lpTop(float f) {
+        LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(-2, -2);
+        layoutParams.topMargin = Math.round(f);
+        return layoutParams;
+    }
+
+    private static View skelBar(Context context, float f, int i, List<View> list) {
+        float f2 = context.getResources().getDisplayMetrics().density;
+        FrameLayout frameLayout = new FrameLayout(context);
+        GradientDrawable gradientDrawable = new GradientDrawable();
+        gradientDrawable.setColor(872415231);
+        float f3 = 4.0f * f2;
+        gradientDrawable.setCornerRadius(Math.round(f3));
+        frameLayout.setBackground(gradientDrawable);
+        View view = new View(context);
+        view.setLayoutParams(new FrameLayout.LayoutParams(Math.round(100.0f * f2), -1));
+        GradientDrawable gradientDrawable2 = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{16777215, i, 16777215});
+        gradientDrawable2.setCornerRadius(Math.round(f3));
+        view.setBackground(gradientDrawable2);
+        view.setX((-100.0f) * f2);
+        frameLayout.addView(view);
+        list.add(view);
+        new LinearLayout.LayoutParams(Math.round(f), Math.round(f2 * 14.0f));
+        return frameLayout;
     }
 
     static final class ShimmerController {
         final List<View> bars;
-        boolean running;
-
-        ShimmerController(List<View> bars) { this.bars = bars; }
-
-        void start() {
-            if (running) return;
-            running = true;
-            MAIN.post(loop);
-        }
-
-        private final Runnable loop = new Runnable() {
+        private final Runnable loop = new Runnable() { // from class: com.zuwe.smartcourselite.UiPolish.ShimmerController.1
             long startTs;
-            @Override public void run() {
-                if (!running) return;
-                if (startTs == 0) startTs = System.currentTimeMillis();
-                float t = ((System.currentTimeMillis() - startTs) % 1400L) / 1400f;
-                for (View bar : bars) {
-                    View parent = (View) bar.getParent();
-                    if (parent == null || parent.getWidth() == 0) continue;
-                    int travel = parent.getWidth() + bar.getWidth();
-                    bar.setTranslationX(-bar.getWidth() + t * travel);
+
+            @Override // java.lang.Runnable
+            public void run() {
+                if (ShimmerController.this.running) {
+                    if (this.startTs == 0) {
+                        this.startTs = System.currentTimeMillis();
+                    }
+                    float currentTimeMillis = ((System.currentTimeMillis() - this.startTs) % 1400) / 1400.0f;
+                    for (View view : ShimmerController.this.bars) {
+                        View view2 = (View) view.getParent();
+                        if (view2 != null && view2.getWidth() != 0) {
+                            view.setTranslationX((-view.getWidth()) + ((view2.getWidth() + view.getWidth()) * currentTimeMillis));
+                        }
+                    }
+                    UiPolish.MAIN.postDelayed(this, 16L);
                 }
-                MAIN.postDelayed(this, 16);
             }
         };
+        boolean running;
+
+        ShimmerController(List<View> list) {
+            this.bars = list;
+        }
+
+        void start() {
+            if (this.running) {
+                return;
+            }
+            this.running = true;
+            UiPolish.MAIN.post(this.loop);
+        }
 
         void stop() {
-            running = false;
-            MAIN.removeCallbacks(loop);
+            this.running = false;
+            UiPolish.MAIN.removeCallbacks(this.loop);
         }
     }
 
-    // ===== 手风琴 Accordion（高度动画） =====
-
-    public static void accordion(final View view, final boolean expand) {
-        if (view == null) return;
-        if (expand) {
-            view.setVisibility(View.VISIBLE);
-            view.measure(View.MeasureSpec.makeMeasureSpec(
-                            ((View) view.getParent()).getMeasuredWidth(), View.MeasureSpec.EXACTLY),
-                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
-            final int targetH = view.getMeasuredHeight();
-            if (targetH <= 0) {
+    public static void accordion(final View view, boolean z) {
+        if (view == null) {
+            return;
+        }
+        if (z) {
+            view.setVisibility(0);
+            view.measure(View.MeasureSpec.makeMeasureSpec(((View) view.getParent()).getMeasuredWidth(), 1073741824), View.MeasureSpec.makeMeasureSpec(0, 0));
+            int measuredHeight = view.getMeasuredHeight();
+            if (measuredHeight <= 0) {
                 view.getLayoutParams().height = -2;
                 return;
             }
             view.getLayoutParams().height = 0;
             view.requestLayout();
-            ValueAnimator anim = ValueAnimator.ofInt(0, targetH);
-            anim.setDuration(320L);
-            anim.setInterpolator(EASE_IN_OUT);
-            anim.addUpdateListener(a -> {
-                view.getLayoutParams().height = (int) a.getAnimatedValue();
-                view.requestLayout();
+            ValueAnimator ofInt = ValueAnimator.ofInt(0, measuredHeight);
+            ofInt.setDuration(180L);
+            ofInt.setInterpolator(EASE_IN_OUT);
+            ofInt.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() { // from class: com.zuwe.smartcourselite.UiPolish.9
+                @Override // android.animation.ValueAnimator.AnimatorUpdateListener
+                public final void onAnimationUpdate(ValueAnimator valueAnimator) {
+                    UiPolish.lambda$accordion$0(view, valueAnimator);
+                }
             });
-            anim.addListener(new AnimatorListenerAdapter() {
-                @Override public void onAnimationEnd(Animator a) {
+            ofInt.addListener(new AnimatorListenerAdapter() { // from class: com.zuwe.smartcourselite.UiPolish.10
+                @Override // android.animation.AnimatorListenerAdapter, android.animation.Animator.AnimatorListener
+                public void onAnimationEnd(Animator animator) {
                     view.getLayoutParams().height = -2;
                     view.requestLayout();
                 }
             });
-            anim.start();
-        } else {
-            final int startH = view.getHeight();
-            if (startH <= 0) { view.setVisibility(View.GONE); return; }
-            ValueAnimator anim = ValueAnimator.ofInt(startH, 0);
-            anim.setDuration(280L);
-            anim.setInterpolator(EASE_IN_OUT);
-            anim.addUpdateListener(a -> {
-                view.getLayoutParams().height = (int) a.getAnimatedValue();
-                view.requestLayout();
-            });
-            anim.addListener(new AnimatorListenerAdapter() {
-                @Override public void onAnimationEnd(Animator a) {
-                    view.setVisibility(View.GONE);
-                    view.getLayoutParams().height = -2;
-                    view.requestLayout();
-                }
-            });
-            anim.start();
+            ofInt.start();
+            return;
         }
-    }
-
-    // ===== 视差 Parallax =====
-
-    public static void parallax(final ScrollView scroll, final View[] backgroundLayers, final float[] factors) {
-        if (scroll == null) return;
-        scroll.getViewTreeObserver().addOnScrollChangedListener(
-                new ViewTreeObserver.OnScrollChangedListener() {
-                    @Override public void onScrollChanged() {
-                        int sy = scroll.getScrollY();
-                        for (int i = 0; i < backgroundLayers.length; i++) {
-                            View v = backgroundLayers[i];
-                            if (v == null) continue;
-                            float f = factors.length > i ? factors[i] : 0.5f;
-                            v.setTranslationY(sy * f);
-                        }
-                    }
-                });
-    }
-
-    // ===== 签到成功弹窗 =====
-
-    public static void successPopup(final Activity activity, final String title, final String subtitle, final int accentColor) {
-        activity.runOnUiThread(() -> {
-            final Dialog dialog = new Dialog(activity, android.R.style.Theme_Translucent_NoTitleBar);
-            dialog.getWindow().setDimAmount(0.4f);
-
-            LinearLayout card = new LinearLayout(activity);
-            card.setOrientation(LinearLayout.VERTICAL);
-            card.setGravity(Gravity.CENTER_HORIZONTAL);
-            float d = activity.getResources().getDisplayMetrics().density;
-            card.setPadding(Math.round(40 * d), Math.round(36 * d), Math.round(40 * d), Math.round(30 * d));
-
-            GradientDrawable cardBg = new GradientDrawable();
-            cardBg.setColor(0xF2202018);
-            cardBg.setCornerRadius(Math.round(28 * d));
-            cardBg.setStroke(Math.round(2f * d), UiPolish.withAlpha(accentColor, 140));
-            card.setBackground(cardBg);
-            card.setElevation(0f);
-
-            CheckCircleView check = new CheckCircleView(activity, accentColor);
-            int checkSize = Math.round(80 * d);
-            LinearLayout.LayoutParams checkLp = new LinearLayout.LayoutParams(checkSize, checkSize);
-            card.addView(check, checkLp);
-
-            TextView titleView = new TextView(activity);
-            titleView.setText(title);
-            titleView.setTextSize(22f);
-            titleView.setTextColor(0xFFFFFFFF);
-            titleView.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-            titleView.setGravity(Gravity.CENTER);
-            LinearLayout.LayoutParams tLp = new LinearLayout.LayoutParams(-2, -2);
-            tLp.topMargin = Math.round(16 * d);
-            card.addView(titleView, tLp);
-
-            if (subtitle != null && !subtitle.isEmpty()) {
-                TextView sub = new TextView(activity);
-                sub.setText(subtitle);
-                sub.setTextSize(13f);
-                sub.setTextColor(0xCCFFFFFF);
-                sub.setGravity(Gravity.CENTER);
-                LinearLayout.LayoutParams sLp = new LinearLayout.LayoutParams(-2, -2);
-                sLp.topMargin = Math.round(8 * d);
-                card.addView(sub, sLp);
+        int height = view.getHeight();
+        if (height <= 0) {
+            view.setVisibility(8);
+            return;
+        }
+        ValueAnimator ofInt2 = ValueAnimator.ofInt(height, 0);
+        ofInt2.setDuration(180L);
+        ofInt2.setInterpolator(EASE_IN_OUT);
+        ofInt2.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() { // from class: com.zuwe.smartcourselite.UiPolish.11
+            @Override // android.animation.ValueAnimator.AnimatorUpdateListener
+            public final void onAnimationUpdate(ValueAnimator valueAnimator) {
+                UiPolish.lambda$accordion$1(view, valueAnimator);
             }
+        });
+        ofInt2.addListener(new AnimatorListenerAdapter() { // from class: com.zuwe.smartcourselite.UiPolish.12
+            @Override // android.animation.AnimatorListenerAdapter, android.animation.Animator.AnimatorListener
+            public void onAnimationEnd(Animator animator) {
+                view.setVisibility(8);
+                view.getLayoutParams().height = -2;
+                view.requestLayout();
+            }
+        });
+        ofInt2.start();
+    }
 
-            FrameLayout root = new FrameLayout(activity);
-            FrameLayout.LayoutParams cardLp = new FrameLayout.LayoutParams(-2, -2);
-            cardLp.gravity = Gravity.CENTER;
-            root.addView(card, cardLp);
-            root.setBackgroundColor(0x00000000);
+    static void lambda$accordion$0(View view, ValueAnimator valueAnimator) {
+        view.getLayoutParams().height = ((Integer) valueAnimator.getAnimatedValue()).intValue();
+        view.requestLayout();
+    }
 
-            dialog.setContentView(root);
-            dialog.setCancelable(false);
-            dialog.show();
+    static void lambda$accordion$1(View view, ValueAnimator valueAnimator) {
+        view.getLayoutParams().height = ((Integer) valueAnimator.getAnimatedValue()).intValue();
+        view.requestLayout();
+    }
 
-            card.setAlpha(0f);
-            card.setScaleX(0.6f);
-            card.setScaleY(0.6f);
-            card.animate().alpha(1f).scaleX(1f).scaleY(1f)
-                    .setDuration(400L).setInterpolator(OVERSHOOT).start();
-            check.animateDraw();
-
-            MAIN.postDelayed(() -> {
-                card.animate().alpha(0f).scaleX(0.85f).scaleY(0.85f)
-                        .setDuration(300L).setInterpolator(EASE_IN_OUT)
-                        .withEndAction(() -> { if (dialog.isShowing()) dialog.dismiss(); })
-                        .start();
-            }, 2200L);
+    public static void parallax(final ScrollView scrollView, final View[] viewArr, final float[] fArr) {
+        if (scrollView == null) {
+            return;
+        }
+        scrollView.getViewTreeObserver().addOnScrollChangedListener(new ViewTreeObserver.OnScrollChangedListener() { // from class: com.zuwe.smartcourselite.UiPolish.13
+            @Override // android.view.ViewTreeObserver.OnScrollChangedListener
+            public void onScrollChanged() {
+                int scrollY = scrollView.getScrollY();
+                int i = 0;
+                while (true) {
+                    View[] viewArr2 = viewArr;
+                    if (i >= viewArr2.length) {
+                        return;
+                    }
+                    View view = viewArr2[i];
+                    if (view != null) {
+                        float[] fArr2 = fArr;
+                        view.setTranslationY(scrollY * (fArr2.length > i ? fArr2[i] : 0.5f));
+                    }
+                    i++;
+                }
+            }
         });
     }
 
-    // ===== 自绘勾号圆 =====
+    public static void successPopup(final Activity activity, final String str, final String str2, final int i) {
+        activity.runOnUiThread(new Runnable() { // from class: com.zuwe.smartcourselite.UiPolish.14
+            @Override // java.lang.Runnable
+            public final void run() {
+                UiPolish.lambda$successPopup$0(activity, i, str, str2);
+            }
+        });
+    }
+
+    static void lambda$successPopup$0(Activity activity, int i, String str, String str2) {
+        final Dialog dialog = new Dialog(activity, android.R.style.Theme_Translucent_NoTitleBar);
+        dialog.getWindow().setDimAmount(0.4f);
+        final LinearLayout linearLayout = new LinearLayout(activity);
+        linearLayout.setOrientation(1);
+        linearLayout.setGravity(1);
+        float f = activity.getResources().getDisplayMetrics().density;
+        float f2 = 40.0f * f;
+        linearLayout.setPadding(Math.round(f2), Math.round(36.0f * f), Math.round(f2), Math.round(30.0f * f));
+        GradientDrawable gradientDrawable = new GradientDrawable();
+        gradientDrawable.setColor(-232775656);
+        gradientDrawable.setCornerRadius(Math.round(28.0f * f));
+        gradientDrawable.setStroke(Math.round(2.0f * f), withAlpha(i, 140));
+        linearLayout.setBackground(gradientDrawable);
+        linearLayout.setElevation(0.0f);
+        CheckCircleView checkCircleView = new CheckCircleView(activity, i);
+        int round = Math.round(80.0f * f);
+        linearLayout.addView(checkCircleView, new LinearLayout.LayoutParams(round, round));
+        TextView textView = new TextView(activity);
+        textView.setText(str);
+        textView.setTextSize(22.0f);
+        textView.setTextColor(-1);
+        textView.setTypeface(Typeface.DEFAULT_BOLD);
+        textView.setGravity(17);
+        LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(-2, -2);
+        layoutParams.topMargin = Math.round(16.0f * f);
+        linearLayout.addView(textView, layoutParams);
+        if (str2 != null && !str2.isEmpty()) {
+            TextView textView2 = new TextView(activity);
+            textView2.setText(str2);
+            textView2.setTextSize(13.0f);
+            textView2.setTextColor(-855638017);
+            textView2.setGravity(17);
+            LinearLayout.LayoutParams layoutParams2 = new LinearLayout.LayoutParams(-2, -2);
+            layoutParams2.topMargin = Math.round(8.0f * f);
+            linearLayout.addView(textView2, layoutParams2);
+        }
+        FrameLayout frameLayout = new FrameLayout(activity);
+        FrameLayout.LayoutParams layoutParams3 = new FrameLayout.LayoutParams(-2, -2);
+        layoutParams3.gravity = 17;
+        frameLayout.addView(linearLayout, layoutParams3);
+        frameLayout.setBackgroundColor(0);
+        RingView ringView = new RingView(activity, i);
+        float f3 = f * 310.0f;
+        FrameLayout.LayoutParams layoutParams4 = new FrameLayout.LayoutParams(Math.round(f3), Math.round(f3));
+        layoutParams4.gravity = 17;
+        frameLayout.addView(ringView, 0, layoutParams4);
+        dialog.setContentView(frameLayout);
+        dialog.setCancelable(false);
+        dialog.show();
+        linearLayout.setAlpha(0.0f);
+        linearLayout.setScaleX(0.6f);
+        linearLayout.setScaleY(0.6f);
+        linearLayout.animate().alpha(1.0f).scaleX(1.0f).scaleY(1.0f).setDuration(420L).setInterpolator(OVERSHOOT).start();
+        checkCircleView.animateDraw();
+        ringView.setAlpha(0.9f);
+        ringView.setScaleX(0.5f);
+        ringView.setScaleY(0.5f);
+        ringView.animate().scaleX(1.7f).scaleY(1.7f).alpha(0.0f).setDuration(420L).setInterpolator(Motion.ENTER).start();
+        MAIN.postDelayed(new Runnable() { // from class: com.zuwe.smartcourselite.UiPolish.15
+            @Override // java.lang.Runnable
+            public final void run() {
+                linearLayout.animate().alpha(0.0f).scaleX(0.85f).scaleY(0.85f).setDuration(280L).setInterpolator(Motion.STANDARD).withEndAction(new Runnable() { // from class: com.zuwe.smartcourselite.UiPolish.15.1
+                    @Override // java.lang.Runnable
+                    public final void run() {
+                        UiPolish.lambda$successPopup$2(dialog);
+                    }
+                }).start();
+            }
+        }, 2200L);
+    }
+
+    static void lambda$successPopup$2(Dialog dialog) {
+        if (dialog.isShowing()) {
+            dialog.dismiss();
+        }
+    }
 
     static final class CheckCircleView extends View {
-        private final Paint circlePaint;
         private final Paint checkPaint;
-        private float progress = 0f;
+        private final Paint circlePaint;
+        private float progress;
 
-        CheckCircleView(Context ctx, int accent) {
-            super(ctx);
-            float d = ctx.getResources().getDisplayMetrics().density;
-            circlePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-            circlePaint.setStyle(Paint.Style.STROKE);
-            circlePaint.setStrokeWidth(4f * d);
-            circlePaint.setColor(accent);
-            checkPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-            checkPaint.setStyle(Paint.Style.STROKE);
-            checkPaint.setStrokeWidth(5f * d);
-            checkPaint.setStrokeCap(Paint.Cap.ROUND);
-            checkPaint.setStrokeJoin(Paint.Join.ROUND);
-            checkPaint.setColor(0xFFFFFFFF);
+        CheckCircleView(Context context, int i) {
+            super(context);
+            this.progress = 0.0f;
+            float f = context.getResources().getDisplayMetrics().density;
+            Paint paint = new Paint(1);
+            this.circlePaint = paint;
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(4.0f * f);
+            paint.setColor(i);
+            Paint paint2 = new Paint(1);
+            this.checkPaint = paint2;
+            paint2.setStyle(Paint.Style.STROKE);
+            paint2.setStrokeWidth(f * 5.0f);
+            paint2.setStrokeCap(Paint.Cap.ROUND);
+            paint2.setStrokeJoin(Paint.Join.ROUND);
+            paint2.setColor(-1);
         }
 
         void animateDraw() {
-            ValueAnimator animator = ValueAnimator.ofFloat(0f, 1f);
-            animator.setDuration(600L);
-            animator.setStartDelay(250L);
-            animator.setInterpolator(new DecelerateInterpolator(1.5f));
-            animator.addUpdateListener(a -> {
-                progress = (float) a.getAnimatedValue();
-                invalidate();
+            ValueAnimator ofFloat = ValueAnimator.ofFloat(0.0f, 1.0f);
+            ofFloat.setDuration(UiPolish.DUR_LONG);
+            ofFloat.setStartDelay(250L);
+            ofFloat.setInterpolator(new DecelerateInterpolator(1.5f));
+            ofFloat.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() { // from class: com.zuwe.smartcourselite.UiPolish.CheckCircleView.1
+                @Override // android.animation.ValueAnimator.AnimatorUpdateListener
+                public final void onAnimationUpdate(ValueAnimator valueAnimator) {
+                    CheckCircleView.this.m24x45fa2981(valueAnimator);
+                }
             });
-            animator.start();
+            ofFloat.start();
         }
 
-        @Override protected void onDraw(android.graphics.Canvas canvas) {
+        void m24x45fa2981(ValueAnimator valueAnimator) {
+            this.progress = ((Float) valueAnimator.getAnimatedValue()).floatValue();
+            invalidate();
+        }
+
+        @Override // android.view.View
+        protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
-            float w = getWidth(), h = getHeight();
-            float cx = w / 2f, cy = h / 2f;
-            float r = Math.min(w, h) / 2f - circlePaint.getStrokeWidth();
-            android.graphics.RectF oval = new android.graphics.RectF(cx - r, cy - r, cx + r, cy + r);
-            float sweep = Math.min(progress * 2f, 1f) * 360f;
-            canvas.drawArc(oval, -90f, sweep, false, circlePaint);
-            float checkProgress = Math.max(0f, (progress - 0.4f) / 0.6f);
-            if (checkProgress > 0) {
-                float scale = r / 30f;
+            float width = getWidth();
+            float height = getHeight();
+            float f = width / 2.0f;
+            float f2 = height / 2.0f;
+            float min = (Math.min(width, height) / 2.0f) - this.circlePaint.getStrokeWidth();
+            canvas.drawArc(new RectF(f - min, f2 - min, f + min, f2 + min), -90.0f, Math.min(this.progress * 2.0f, 1.0f) * 360.0f, false, this.circlePaint);
+            float max = Math.max(0.0f, (this.progress - 0.4f) / 0.6f);
+            if (max > 0.0f) {
+                float f3 = min / 30.0f;
                 Path path = new Path();
-                path.moveTo(cx - 9f * scale, cy + 0f * scale);
-                path.lineTo(cx - 2f * scale, cy + 7f * scale);
-                path.lineTo(cx + 9f * scale, cy - 7f * scale);
-                android.graphics.PathMeasure pm = new android.graphics.PathMeasure(path, false);
-                Path dst = new Path();
-                pm.getSegment(0, pm.getLength() * checkProgress, dst, true);
-                canvas.drawPath(dst, checkPaint);
+                float f4 = 9.0f * f3;
+                path.moveTo(f - f4, (f3 * 0.0f) + f2);
+                float f5 = f - (2.0f * f3);
+                float f6 = f3 * 7.0f;
+                path.lineTo(f5, f2 + f6);
+                path.lineTo(f + f4, f2 - f6);
+                PathMeasure pathMeasure = new PathMeasure(path, false);
+                Path path2 = new Path();
+                pathMeasure.getSegment(0.0f, pathMeasure.getLength() * max, path2, true);
+                canvas.drawPath(path2, this.checkPaint);
             }
+        }
+    }
+
+    public static final class RingView extends View {
+        private final Paint paint;
+
+        public RingView(Context context, int i) {
+            super(context);
+            Paint paint = new Paint(1);
+            this.paint = paint;
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(context.getResources().getDisplayMetrics().density * 2.0f);
+            paint.setColor(UiPolish.withAlpha(i, 190));
+        }
+
+        @Override // android.view.View
+        protected void onDraw(Canvas canvas) {
+            canvas.drawCircle(getWidth() / 2.0f, getHeight() / 2.0f, (Math.min(getWidth(), getHeight()) / 2.0f) - this.paint.getStrokeWidth(), this.paint);
         }
     }
 }

@@ -2,8 +2,6 @@ package com.zuwe.smartcourselite;
 
 import android.content.Context;
 import com.zuwe.smartcourselite.TokenParser;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.json.JSONObject;
 
 /* loaded from: classes.dex */
@@ -14,6 +12,9 @@ public final class AuthManager {
         READY,
         AUTHORIZATION_UPDATED,
         REAUTH_REQUIRED
+    }
+
+    public static void markUnauthorized(Context context) {
     }
 
     public static final class Credentials {
@@ -112,40 +113,50 @@ public final class AuthManager {
         AuthVault.save(context, cleanJwt, str2);
     }
 
-    /**
-     * 保存 WebView 登录拿到的凭证：Authorization JWT + 浏览器里的 sklToken Cookie。
-     * Cookie 必须一起更新，否则 Authorization 与 Cookie 属于两次不同的会话，服务端会判为无效。
-     */
-    public static boolean saveFromWeb(Context context, String str, String str2) {
-        String cleanJwt = TokenParser.cleanJwt(str);
-        if (!OAuthCallback.looksLikeJwt(cleanJwt)) {
-            return false;
-        }
-        String cookie = "";
-        if (str2 != null && !str2.isEmpty()) {
-            Matcher matcher = Pattern.compile("(?i)sklToken\\s*=\\s*([^;]+)").matcher(str2);
-            if (matcher.find()) {
-                cookie = TokenParser.cleanJwt(matcher.group(1));
-            }
-        }
-        try {
-            if (!cookie.isEmpty()) {
-                savePair(context, cleanJwt, cookie);
-            } else {
-                saveAuthorization(context, cleanJwt);
-            }
-            return true;
-        } catch (Exception e) {
-            try {
-                saveAuthorization(context, cleanJwt);
-                return true;
-            } catch (Exception ignored) {
-                return false;
-            }
-        }
-    }
-
-    public static void markUnauthorized(Context context) {
+    /* JADX WARN: Removed duplicated region for block: B:15:0x0036 A[Catch: Exception -> 0x003e, TryCatch #0 {Exception -> 0x003e, blocks: (B:13:0x0030, B:15:0x0036, B:17:0x003a), top: B:12:0x0030 }] */
+    /* JADX WARN: Removed duplicated region for block: B:17:0x003a A[Catch: Exception -> 0x003e, TRY_LEAVE, TryCatch #0 {Exception -> 0x003e, blocks: (B:13:0x0030, B:15:0x0036, B:17:0x003a), top: B:12:0x0030 }] */
+    /*
+        Code decompiled incorrectly, please refer to instructions dump.
+        To view partially-correct add '--show-bad-code' argument
+    */
+    public static boolean saveFromWeb(android.content.Context r3, java.lang.String r4, java.lang.String r5) {
+        /*
+            java.lang.String r4 = com.zuwe.smartcourselite.TokenParser.cleanJwt(r4)
+            boolean r0 = com.zuwe.smartcourselite.OAuthCallback.looksLikeJwt(r4)
+            r1 = 0
+            if (r0 != 0) goto Lc
+            return r1
+        Lc:
+            r0 = 1
+            if (r5 == 0) goto L2e
+            boolean r2 = r5.isEmpty()
+            if (r2 != 0) goto L2e
+            java.lang.String r2 = "(?i)sklToken\\s*=\\s*([^;]+)"
+            java.util.regex.Pattern r2 = java.util.regex.Pattern.compile(r2)
+            java.util.regex.Matcher r5 = r2.matcher(r5)
+            boolean r2 = r5.find()
+            if (r2 == 0) goto L2e
+            java.lang.String r5 = r5.group(r0)
+            java.lang.String r5 = com.zuwe.smartcourselite.TokenParser.cleanJwt(r5)
+            goto L30
+        L2e:
+            java.lang.String r5 = ""
+        L30:
+            boolean r2 = r5.isEmpty()     // Catch: java.lang.Exception -> L3e
+            if (r2 != 0) goto L3a
+            savePair(r3, r4, r5)     // Catch: java.lang.Exception -> L3e
+            goto L3d
+        L3a:
+            saveAuthorization(r3, r4)     // Catch: java.lang.Exception -> L3e
+        L3d:
+            return r0
+        L3e:
+            saveAuthorization(r3, r4)     // Catch: java.lang.Exception -> L42
+            return r0
+        L42:
+            return r1
+        */
+        throw new UnsupportedOperationException("Method not decompiled: com.zuwe.smartcourselite.AuthManager.saveFromWeb(android.content.Context, java.lang.String, java.lang.String):boolean");
     }
 
     private static void ensureSameAccount(String str, String str2) {
