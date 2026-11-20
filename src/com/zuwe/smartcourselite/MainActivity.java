@@ -249,7 +249,15 @@ public final class MainActivity extends Activity {
         return CACHE_PREFIX + date.toString();
     }
 
-    private void saveCache(LocalDate date, List<Course> list) {
+    /**
+     * 写缓存入口：智慧思政自己刷新时也走这里，由 JwPreserve 保住从教务补上的教室/老师。
+     */
+    public void saveCache(LocalDate date, List<Course> list) {
+        JwPreserve.saveAndKeep(this, date, list);
+    }
+
+    /** 真正落盘（不做合并）。 */
+    void writeCache(LocalDate date, List<Course> list) {
         JSONArray array = new JSONArray();
         if (list != null) {
             for (Course course : list) {
@@ -1579,13 +1587,16 @@ public final class MainActivity extends Activity {
             }
         });
         panel.addView(importZip, top(8));
+        Button jw = ghostBtn("教务系统课表 · 网页登录后一键填充");
+        jw.setOnClickListener(new JwClickListener());
+        panel.addView(jw, top(8));
         return panel;
     }
 
     private void jumpTo(LocalDate date) {
         this.viewDate = date;
         updateDateHeader();
-        if (!ready()) {
+        if (!JwGate.ok(this, date)) {
             return;
         }
         List<Course> cached = loadCache(date);
@@ -1839,7 +1850,7 @@ public final class MainActivity extends Activity {
         });
     }
 
-    private boolean ready() {
+    boolean ready() {
         try {
             AuthManager.Credentials credentials = AuthManager.load(this);
             if (credentials == null) {
@@ -2121,7 +2132,7 @@ public final class MainActivity extends Activity {
                 UiPolish.withAlpha(this.line, 0x77));
     }
 
-    private void render(List<Course> list) {
+    public void render(List<Course> list) {
         this.lastData = list;
         if (this.courseList == null) return;
         if (this.skeletonStop != null) { this.skeletonStop.run(); this.skeletonStop = null; }
