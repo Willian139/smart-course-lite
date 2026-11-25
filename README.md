@@ -58,4 +58,8 @@ apksigner sign --ks your.jks --ks-key-alias yourkey --out app.apk app-aligned.ap
 
 如果这个项目对你有帮助，可以无偿捐赠支持开发者。应用内「关于此项目 → 点击捐赠」可查看收款码。
 
+### 捐赠名单
+
+- 小兲（捐赠 5 元）
+
 问题反馈：weirenwuwanren@qq.com
